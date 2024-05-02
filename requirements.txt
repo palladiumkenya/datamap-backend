@@ -58,6 +58,7 @@ mock==5.1.0
 more-itertools==10.2.0
 multidict==6.0.5
 mypy-extensions==1.0.0
+mysqlclient==2.2.4
 nodeenv==1.7.0
 numpy==1.24.2
 oauthlib==3.2.2
@@ -85,6 +86,7 @@ pydantic_core==2.16.2
 pyflakes==3.0.1
 Pygments==2.16.1
 pymssql==2.2.7
+PyMySQL==1.1.0
 pyparsing==3.0.9
 PySocks==1.7.1
 pytest==7.3.1
