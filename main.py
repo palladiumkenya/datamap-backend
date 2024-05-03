@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
-from routes import access_api
-from models.models import AccessCredentials
+from routes import access_api,indicator_selector_api
+from models.models import AccessCredentials, IndicatorVariables
 
 app = FastAPI()
 
@@ -22,9 +22,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     sync_table(AccessCredentials)
+    sync_table(IndicatorVariables)
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
+app.include_router(indicator_selector_api.router, tags=['Selector'], prefix='/api/indicator_selector')
 
 
 @app.get("/api/healthchecker")
