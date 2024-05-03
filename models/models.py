@@ -19,3 +19,16 @@ class AccessCredentials(Model):
     def save(self):
         self.updated_at = datetime.utcnow()
         super().save()
+
+
+class User(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'users'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    username = columns.Text(required=True, index=True)
+    password = columns.Text(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+
+    def save(self):
+        super().save()

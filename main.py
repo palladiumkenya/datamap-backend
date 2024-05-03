@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
 from routes import access_api
 from models.models import AccessCredentials
+from routes import users_route as users
 
 app = FastAPI()
 
@@ -22,9 +23,10 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     sync_table(AccessCredentials)
-
+    sync_table(users.User)
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
+app.include_router(users.router, tags=['Users'], prefix='/api/users')
 
 
 @app.get("/api/healthchecker")
