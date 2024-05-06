@@ -1,5 +1,6 @@
 from urllib.parse import quote_plus
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
@@ -50,11 +51,19 @@ def test_db(db_url):
         return False, str(e)
 
 
-@router.get("/test_db_connection")
-async def test_db_connection(db_type: str, host: str, port: int, database: str, username: str, password: str):
+class DBConnectionRequest(BaseModel):
+    db_type: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
+    host_port: str = Field(..., description="Database host & port")
+    database: str = Field(..., description="Database name")
+    username: str = Field(..., description="Database username")
+    password: str = Field(..., description="Database password")
+
+
+@router.post("/test_db_connection")
+async def test_db_connection(data: DBConnectionRequest):
     # Encode special characters in the password
-    encoded_password = quote_plus(password)
-    db_url = f"{db_type}://{username}:{encoded_password}@{host}:{port}/{database}"
+    encoded_password = quote_plus(data.password)
+    db_url = f"{data.db_type}://{data.username}:{encoded_password}@{data.host_port}/{database}"
 
     success, error_message = test_db(db_url)
     if success:
