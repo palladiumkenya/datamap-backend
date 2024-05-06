@@ -7,22 +7,27 @@ from typing import List
 from models.models import AccessCredentials,IndicatorVariables
 from database import database
 from serializers.indicator_selector_serializer import indicator_selector_list_entity,indicator_list_entity
+from serializers.access_credentials_serializer import access_credential_list_entity
 
 router = APIRouter()
 
 
 
 # Create a SQLite database engine
-connection_string = f"mysql://dwapi:dwapi@192.168.100.35:3307/kenyaemr_etl"
+def get_connection_string():
+    credentials = AccessCredentials.objects().all()
+    credentials = access_credential_list_entity(credentials)
+    return credentials
 
-engine = create_engine(connection_string)
+connection_string = get_connection_string()
+
+engine = create_engine(connection_string[0]["conn_string"])
 
 # Create an inspector object to inspect the database
 inspector = inspect(engine)
 metadata = MetaData()
 metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 
 @router.get('/getDatabaseColumns')
 async def getDatabaseColumns():
