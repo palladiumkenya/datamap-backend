@@ -3,6 +3,8 @@ from sqlalchemy.orm import sessionmaker
 
 from fastapi import APIRouter
 from typing import List
+import pandas as pd
+import requests
 
 from models.models import AccessCredentials,IndicatorVariables
 from database import database
@@ -28,6 +30,38 @@ inspector = inspect(engine)
 metadata = MetaData()
 metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+
+@router.get('/base_variables/{base_lookup}')
+async def base_variables(base_lookup: str):
+    # URL of the Excel file
+    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
+
+    # Download the file
+    response = requests.get(excel_url)
+
+    # Check if download was successful
+    if response.status_code == 200:
+        with open('dictionary.xlsx', 'wb') as f:
+            f.write(response.content)
+        print('File downloaded successfully')
+        df = pd.read_excel('dictionary.xlsx', sheet_name=base_lookup)
+
+        # Display the DataFrame
+        print(df.head())
+
+        base_variables = []
+        for i in range(0, df.shape[0]):
+            base_variables.append(df['Column/Variable Name'][i])
+        print('base_variables===>',base_variables)
+    else:
+        print('Failed to download file')
+    print('base_lookup',base_lookup)
+
+    return base_variables
+
+
 
 @router.get('/getDatabaseColumns')
 async def getDatabaseColumns():
