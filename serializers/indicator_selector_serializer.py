@@ -2,10 +2,13 @@ def indicator_selector_entity(variable) -> dict:
     return {
         "id": str(variable["id"]),
         "indicator": str(variable["indicator"]),
-        "baseVariableMappedTo": str(variable["baseVariableMappedTo"]),
-        "tablename": variable["created_at"],
+        "base_variable_mapped_to": str(variable["base_variable_mapped_to"]),
+        "tablename": variable["tablename"],
         "columnname": variable["columnname"],
-        "datatype": variable["datatype"]
+        "datatype": variable["datatype"],
+        "created_at": variable["created_at"],
+        "updated_at": variable["updated_at"]
+
     }
 
 

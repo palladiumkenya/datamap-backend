@@ -28,13 +28,13 @@ class IndicatorVariables(Model):
     __table_name__ = 'indicator_variables'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    tablename = columns.Text(required=True)
-    columnname = columns.Text(required=True)
-    datatype = columns.Text(required=True)
-    indicator = columns.Text(required=True)
-    baseVariableMappedTo = columns.Text(required=True)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow())
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    tablename = columns.Text(required=True,index=True)
+    columnname = columns.Text(required=True,index=True)
+    datatype = columns.Text(required=True,index=True)
+    indicator = columns.Text(required=True,index=True)
+    base_variable_mapped_to = columns.Text(required=True,index=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
 
     def save(self):
         self.updated_at = datetime.utcnow()

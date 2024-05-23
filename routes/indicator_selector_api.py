@@ -1,10 +1,13 @@
-from sqlalchemy import create_engine, inspect, MetaData, Table
+from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.orm import sessionmaker
 
 from fastapi import APIRouter
 from typing import List
 import pandas as pd
 import requests
+from openpyxl import load_workbook
+from io import BytesIO
+
 
 from models.models import AccessCredentials,IndicatorVariables
 from database import database
@@ -30,6 +33,54 @@ inspector = inspect(engine)
 metadata = MetaData()
 metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+
+@router.get('/base_schemas')
+async def base_schemas():
+    # URL of the Excel file
+    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
+    # Download the file
+    response = requests.get(excel_url)
+
+    # Check if download was successful
+    if response.status_code == 200:
+
+        with open('dictionary.xlsx', 'wb') as f:
+            f.write(response.content)
+        print('File downloaded successfully')
+
+        wb = load_workbook(BytesIO(response.content))
+        sheets = wb.sheetnames
+
+        cass_session = database.cassandra_session_factory()
+
+        schemas = []
+
+        for schema in sheets:
+            df = pd.read_excel('dictionary.xlsx', sheet_name=schema)
+            base_variables = []
+            for i in range(0, df.shape[0]):
+                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and indicator='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
+                # results = database.execute_query(query)
+                rows= cass_session.execute(query)
+                results = []
+                for row in rows:
+                    results.append(row)
+                matchedVariable = False if not results else True
+
+                base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
+
+            baseSchemaObj = {}
+            baseSchemaObj["schema"] = schema
+            baseSchemaObj["base_variables"] = base_variables
+
+            schemas.append(baseSchemaObj)
+
+    else:
+        print('Failed to download file')
+
+    return schemas
 
 
 
@@ -88,7 +139,7 @@ async def add_indicator_variables(variables:List[object]):
         for variableSet in variables:
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], indicator=variableSet["indicator"],
-                                                   baseVariableMappedTo=variableSet["baseVariableMappedTo"])
+                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"])
         return {"status":200, "message":"Indicator Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
@@ -145,6 +196,7 @@ async def available_connections(indicator:str):
         indicatorRes = [dict(row) for row in result]
 
         indicators = indicator_list_entity(indicatorRes)
+        session.shutdown()
 
         return {"indicators": indicators}
 
