@@ -21,18 +21,27 @@ router = APIRouter()
 # Create a SQLite database engine
 def get_connection_string():
     credentials = AccessCredentials.objects().all()
-    credentials = access_credential_list_entity(credentials)
-    return credentials
+    if credentials:
+        credentials = access_credential_list_entity(credentials)
 
-connection_string = get_connection_string()
+        connection_string = credentials
 
-engine = create_engine(connection_string[0]["conn_string"])
+        engine = create_engine(connection_string[0]["conn_string"])
+
+        return engine
+
+
+engine = get_connection_string()
+
 
 # Create an inspector object to inspect the database
 inspector = inspect(engine)
 metadata = MetaData()
 metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+
 
 
 
@@ -46,7 +55,7 @@ async def base_schemas():
     # Check if download was successful
     if response.status_code == 200:
 
-        with open('dictionary.xlsx', 'wb') as f:
+        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
             f.write(response.content)
         print('File downloaded successfully')
 
@@ -58,7 +67,7 @@ async def base_schemas():
         schemas = []
 
         for schema in sheets:
-            df = pd.read_excel('dictionary.xlsx', sheet_name=schema)
+            df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
             base_variables = []
             for i in range(0, df.shape[0]):
                 query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and indicator='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
@@ -94,10 +103,10 @@ async def base_variables(base_lookup: str):
 
     # Check if download was successful
     if response.status_code == 200:
-        with open('dictionary.xlsx', 'wb') as f:
+        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
             f.write(response.content)
         print('File downloaded successfully')
-        df = pd.read_excel('dictionary.xlsx', sheet_name=base_lookup)
+        df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
 
         # Display the DataFrame
         print(df.head())
@@ -133,14 +142,14 @@ async def getDatabaseColumns():
     return dbTablesAndColumns
 
 
-@router.post('/add_indicator_variables')
-async def add_indicator_variables(variables:List[object]):
+@router.post('/add_mapped_variables')
+async def add_mapped_variables(variables:List[object]):
     try:
         for variableSet in variables:
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], indicator=variableSet["indicator"],
                                                    base_variable_mapped_to=variableSet["base_variable_mapped_to"])
-        return {"status":200, "message":"Indicator Variables added"}
+        return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
 
@@ -155,7 +164,7 @@ async def available_connections():
 
 
 @router.get('/tx_curr_generate_indicator')
-async def available_connections(indicator:str):
+async def generate_indicator(indicator:str):
     print("passed indicator", indicator)
     query="select 'TX_CURR'                                                                   AS 'indicator', " \
                 "       count(distinct t.patient_id)                                                as 'indicator_value', " \
@@ -199,6 +208,23 @@ async def available_connections(indicator:str):
         session.shutdown()
 
         return {"indicators": indicators}
+
+
+
+@router.get('/generate_config')
+async def generate_config(baseSchema:str):
+    access_cred = AccessCredentials.objects().all()
+    access_cred = access_credential_list_entity(access_cred)
+
+    config = IndicatorVariables.objects().all()
+    config = indicator_selector_list_entity(config)
+    with open('configs/schemas/'+baseSchema +'.conf', 'w') as f:
+        f.write(str(config))
+
+    return 'success'
+
+
+
 
 
 
