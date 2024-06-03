@@ -39,6 +39,15 @@ def cassandra_session_factory():
 
     return session
 
+def execute_query(query):
+
+    rows = _session.execute(query)
+
+    data = []
+    for row in rows:
+        data.append(row)
+    return data
+
 
 _session = cassandra_session_factory()
 register_connection(str(_session), session=_session)
