@@ -14,6 +14,8 @@ class AccessCredentials(Model):
     conn_string = columns.Text(required=True)
     name = columns.Text(required=True)
     system = columns.Text(required=False)
+    system_version = columns.Text(required=False)
+    is_published = columns.Boolean(default=False)
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())

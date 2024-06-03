@@ -19,10 +19,16 @@ async def available_connections():
     return {'credentials': credentials}
 
 
+class SaveDBConnection(BaseModel):
+    conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
+    system: str = Field(..., description="Database host & port")
+    version: str = Field(..., description="Database name")
+    name: str = Field(..., description="Database username")
+
+
 @router.post('/add_connection')
-async def add_connection(conn_string: str):
-    credential = AccessCredentials.create(conn_string=conn_string)
-    # credentials = access_credential_list_entity(credential)
+async def add_connection(data: SaveDBConnection):
+    credential = AccessCredentials.create(conn_string=data.conn_string, system_version=data.version, system=data.system, name=data.name)
     return credential
 
 
@@ -63,7 +69,7 @@ class DBConnectionRequest(BaseModel):
 async def test_db_connection(data: DBConnectionRequest):
     # Encode special characters in the password
     encoded_password = quote_plus(data.password)
-    db_url = f"{data.db_type}://{data.username}:{encoded_password}@{data.host_port}/{database}"
+    db_url = f"{data.db_type}://{data.username}:{encoded_password}@{data.host_port}/{data.database}"
 
     success, error_message = test_db(db_url)
     if success:
