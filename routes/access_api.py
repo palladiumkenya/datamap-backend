@@ -14,7 +14,6 @@ router = APIRouter()
 @router.get('/available_connections')
 async def available_connections():
     credentials = AccessCredentials.objects().all()
-    # print(credentials)
     credentials = access_credential_list_entity(credentials)
     return {'credentials': credentials}
 
@@ -28,8 +27,11 @@ class SaveDBConnection(BaseModel):
 
 @router.post('/add_connection')
 async def add_connection(data: SaveDBConnection):
-    credential = AccessCredentials.create(conn_string=data.conn_string, system_version=data.version, system=data.system, name=data.name)
-    return credential
+    try:
+        credential = AccessCredentials.create(conn_string=data.conn_string, system_version=data.version, system=data.system, name=data.name)
+        return {'success': True, 'message': 'Connection added successfully'}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=e)
 
 
 @router.delete('/delete_connection')
