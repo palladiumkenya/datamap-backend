@@ -1,18 +1,30 @@
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.orm import sessionmaker
 
+import json
 from fastapi import APIRouter
 from typing import List
 import pandas as pd
 import requests
 from openpyxl import load_workbook
 from io import BytesIO
+import logging
 
 
 from models.models import AccessCredentials,IndicatorVariables
 from database import database
 from serializers.indicator_selector_serializer import indicator_selector_list_entity,indicator_list_entity
 from serializers.access_credentials_serializer import access_credential_list_entity
+
+
+log = logging.getLogger()
+log.setLevel('DEBUG')
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+log.addHandler(handler)
+
+
+
 
 router = APIRouter()
 
@@ -91,6 +103,52 @@ async def base_schemas():
 
     return schemas
 
+
+
+@router.get('/base_schema_variables/{base_lookup}')
+async def base_variables(base_lookup: str):
+    # URL of the Excel file
+    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
+    # Download the file
+    response = requests.get(excel_url)
+
+    # Check if download was successful
+    if response.status_code == 200:
+
+        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
+            f.write(response.content)
+        print('File downloaded successfully')
+
+        wb = load_workbook(BytesIO(response.content))
+        sheets = wb.sheetnames
+
+        cass_session = database.cassandra_session_factory()
+
+        schemas = []
+
+        df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
+        base_variables = []
+        for i in range(0, df.shape[0]):
+            query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and indicator='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
+            # results = database.execute_query(query)
+            rows= cass_session.execute(query)
+            results = []
+            for row in rows:
+                results.append(row)
+            matchedVariable = False if not results else True
+
+            base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
+
+        baseSchemaObj = {}
+        baseSchemaObj["schema"] = base_lookup
+        baseSchemaObj["base_variables"] = base_variables
+
+        schemas.append(baseSchemaObj)
+
+    else:
+        print('Failed to download file')
+
+    return schemas
 
 
 @router.get('/base_variables/{base_lookup}')
@@ -225,6 +283,57 @@ async def generate_config(baseSchema:str):
 
 
 
+@router.get('/import_config')
+async def import_config(baseSchema:str):
+    try:
+        access_cred = AccessCredentials.objects().all()
+        access_cred = access_credential_list_entity(access_cred)
+
+        f = open('configs/schemas/'+baseSchema +'.conf', 'r')
+
+        configImportStatements = f.read()
+        configs = json.loads(configImportStatements.replace("'", '"'))
+        for conf in configs:
+            IndicatorVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
+                                      datatype=conf["datatype"], indicator=conf["indicator"],
+                                      base_variable_mapped_to=conf["base_variable_mapped_to"])
+
+
+        f.close()
+        log.info("========= Successfully imported config ==========")
+
+        return 'success'
+    except Exception as e:
+        log.error("Error importing config ==> %s", str(e.message))
+
+        return e
+
+
+@router.get('/generate-query')
+async def generate_query():
+    try:
+        access_cred = AccessCredentials.objects().all()
+        access_cred = access_credential_list_entity(access_cred)
+
+        configs = IndicatorVariables.objects().all()
+        configs = indicator_selector_list_entity(configs)
+
+        mapped_columns = []
+        for conf in configs:
+            mapped_columns.append(conf["tablename"]+ "."+conf["columnname"])
+        print("mapped_columns -> ",mapped_columns)
+        columns = ", ".join(mapped_columns)
+
+        query = f"SELECT {columns} from ..."
+        print("query -> ",query)
+
+        log.info("========= Successfully generated query ==========")
+
+        return 'success'
+    except Exception as e:
+        log.error("Error importing config ==> %s", str(e))
+
+        return e
 
 
 
