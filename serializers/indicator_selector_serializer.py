@@ -6,8 +6,8 @@ def indicator_selector_entity(variable) -> dict:
         "tablename": variable["tablename"],
         "columnname": variable["columnname"],
         "datatype": variable["datatype"],
-        "created_at": variable["created_at"],
-        "updated_at": variable["updated_at"]
+        "created_at": str(variable["created_at"]),
+        "updated_at": str(variable["updated_at"])
 
     }
 
