@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
-from routes import access_api,indicator_selector_api
+from routes import access_api, indicator_selector_api
 from models.models import AccessCredentials, IndicatorVariables
 
 app = FastAPI()
