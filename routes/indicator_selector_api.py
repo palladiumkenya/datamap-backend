@@ -49,7 +49,7 @@ engine = get_connection_string()
 # Create an inspector object to inspect the database
 inspector = inspect(engine)
 metadata = MetaData()
-metadata.reflect(bind=engine)
+# metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -334,3 +334,25 @@ async def generate_query():
         log.error("Error importing config ==> %s", str(e))
 
         return e
+
+
+@router.get('/load_data/{baselookup}')
+async def load_data(baselookup:str):
+    query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv limit 100")
+
+    with SessionLocal() as session:
+        result = session.execute(query)
+        print("result=============> ",result)
+
+        # desc = cursor.description
+        # column_names = [col[0] for col in desc]
+        # baseRepo = [dict(zip(column_names, row))
+        #         for row in cursor.fetchall()]
+        columns=result.keys()
+        baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+        print("result=============> ",baseRepoLoaded)
+
+        # baseRepo = indicator_list_entity(baseRepo)
+        # session.shutdown()
+
+        return baseRepoLoaded
