@@ -15,10 +15,10 @@ class AccessCredentials(Model):
     name = columns.Text(required=True)
     system = columns.Text(required=False)
     system_version = columns.Text(required=False)
-    is_published = columns.Boolean(default=False)
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
 
     def save(self):
         self.updated_at = datetime.utcnow()
@@ -55,6 +55,44 @@ class IndicatorQueries(Model):
 
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class DataDictionaries(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'data_dictionaries'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    datasource_id = columns.UUID(required=True)
+    name = columns.Text(required=True)
+    is_published = columns.Boolean(default=False)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class DataDictionaryTerms(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'data_dictionary_terms'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    dictionary_id = columns.UUID(required=True, index=True)
+    term = columns.Text(required=True)
+    data_type = columns.Text(required=True)
+    is_required = columns.Boolean(default=False)
+    term_description = columns.Text(required=False)
+    expected_values = columns.Text(required=False)
+    is_active = columns.Boolean(required=True, default=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
 
     def save(self):
         self.updated_at = datetime.utcnow()
