@@ -83,8 +83,8 @@ class DataDictionaryTerms(Model):
     __table_name__ = 'data_dictionary_terms'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    dictionary_id = columns.UUID(required=True, index=True)
-    term = columns.Text(required=True)
+    dictionary = columns.Text(required=True, index=True)
+    term = columns.Text(required=True, index=True)
     data_type = columns.Text(required=True)
     is_required = columns.Boolean(default=False)
     term_description = columns.Text(required=False)
