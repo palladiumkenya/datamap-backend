@@ -334,7 +334,3 @@ async def generate_query():
         log.error("Error importing config ==> %s", str(e))
 
         return e
-
-
-
-
