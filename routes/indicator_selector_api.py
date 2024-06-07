@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 
 import json
 from fastapi import APIRouter
@@ -38,7 +39,9 @@ def get_connection_string():
 
         connection_string = credentials
 
+        # engine = create_engine(connection_string[0]["conn_string"])
         engine = create_engine(connection_string[0]["conn_string"])
+
 
         return engine
 
@@ -49,7 +52,7 @@ engine = get_connection_string()
 # Create an inspector object to inspect the database
 inspector = inspect(engine)
 metadata = MetaData()
-# metadata.reflect(bind=engine)
+metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -183,30 +186,37 @@ async def base_variables(base_lookup: str):
 
 @router.get('/getDatabaseColumns')
 async def getDatabaseColumns():
+    try:
+        dbTablesAndColumns={}
 
-    dbTablesAndColumns={}
+        table_names = metadata.tables.keys()
+        print("table_names =======>", table_names)
 
-    table_names = metadata.tables.keys()
-    for table_name in table_names:
+        for table_name in table_names:
+            print("dbTablesAndColumns =======>",table_name)
 
-        columns = inspector.get_columns(table_name)
+            columns = inspector.get_columns(table_name)
 
-        getcolumnnames = []
-        for column in columns:
-            getcolumnnames.append(column['name'])
+            getcolumnnames = []
+            for column in columns:
+                getcolumnnames.append(column['name'])
 
-        dbTablesAndColumns[table_name] = getcolumnnames
-    # credential = credential
-    return dbTablesAndColumns
+            dbTablesAndColumns[table_name] = getcolumnnames
+        # credential = credential
+        # print("dbTablesAndColumns =======>",dbTablesAndColumns)
+        return dbTablesAndColumns
+    except SQLAlchemyError as e:
+        print(f"Error reflecting database: {e}")
 
 
 @router.post('/add_mapped_variables')
 async def add_mapped_variables(variables:List[object]):
     try:
         for variableSet in variables:
+            print("variableSet =============> ",variableSet)
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], indicator=variableSet["indicator"],
-                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"])
+                                                   base_variable_mapped_to=variableSet["baseVariableMappedTo"])
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
