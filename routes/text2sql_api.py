@@ -247,8 +247,11 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
 
         with SessionLocal() as session:
             result = session.execute(text(sql_query))
-            result = result.fetchall()
-            data = dict(result)
+            rows = result.fetchall()
+            # Get column names
+            columns = result.keys()
+
+            data = [dict(zip(columns, row)) for row in rows]
 
         return {"sql_query": sql_query, "data": data}
     except Exception as e:
