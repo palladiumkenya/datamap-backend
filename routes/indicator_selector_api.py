@@ -85,7 +85,7 @@ async def base_schemas():
             df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
             base_variables = []
             for i in range(0, df.shape[0]):
-                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and indicator='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
+                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and baseRepository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
                 # results = database.execute_query(query)
                 rows= cass_session.execute(query)
                 results = []
@@ -132,9 +132,9 @@ async def base_variables(base_lookup: str):
         df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
         base_variables = []
         for i in range(0, df.shape[0]):
-            query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and indicator='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
-            # results = database.execute_query(query)
+            query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
             rows= cass_session.execute(query)
+            print(query)
             results = []
             for row in rows:
                 results.append(row)
@@ -215,7 +215,7 @@ async def add_mapped_variables(variables:List[object]):
         for variableSet in variables:
             print("variableSet =============> ",variableSet)
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
-                                                   datatype=variableSet["datatype"], indicator=variableSet["indicator"],
+                                                   datatype=variableSet["datatype"], baseRepository=variableSet["baseRepository"],
                                                    base_variable_mapped_to=variableSet["baseVariableMappedTo"])
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
@@ -296,8 +296,6 @@ async def generate_config(baseSchema:str):
 @router.get('/import_config')
 async def import_config(baseSchema:str):
     try:
-        access_cred = AccessCredentials.objects().all()
-        access_cred = access_credential_list_entity(access_cred)
 
         f = open('configs/schemas/'+baseSchema +'.conf', 'r')
 
@@ -305,39 +303,11 @@ async def import_config(baseSchema:str):
         configs = json.loads(configImportStatements.replace("'", '"'))
         for conf in configs:
             IndicatorVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
-                                      datatype=conf["datatype"], indicator=conf["indicator"],
+                                      datatype=conf["datatype"], base_repository=conf["base_repository"],
                                       base_variable_mapped_to=conf["base_variable_mapped_to"])
-
 
         f.close()
         log.info("========= Successfully imported config ==========")
-
-        return 'success'
-    except Exception as e:
-        log.error("Error importing config ==> %s", str(e.message))
-
-        return e
-
-
-@router.get('/generate-query')
-async def generate_query():
-    try:
-        access_cred = AccessCredentials.objects().all()
-        access_cred = access_credential_list_entity(access_cred)
-
-        configs = IndicatorVariables.objects().all()
-        configs = indicator_selector_list_entity(configs)
-
-        mapped_columns = []
-        for conf in configs:
-            mapped_columns.append(conf["tablename"]+ "."+conf["columnname"])
-        print("mapped_columns -> ",mapped_columns)
-        columns = ", ".join(mapped_columns)
-
-        query = f"SELECT {columns} from ..."
-        print("query -> ",query)
-
-        log.info("========= Successfully generated query ==========")
 
         return 'success'
     except Exception as e:
@@ -346,23 +316,52 @@ async def generate_query():
         return e
 
 
+# @router.get('/generate-query/{baselookup}')
+def generate_query(baselookup:str):
+    try:
+
+        cass_session = database.cassandra_session_factory()
+
+        query = "SELECT * FROM indicator_variables WHERE baseRepository='%s' ALLOW FILTERING;" % (baselookup)
+        configs = cass_session.execute(query)
+
+        mapped_columns = []
+        mapped_joins = []
+
+        for conf in configs:
+            mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as "+conf["baseVariableMappedTo"])
+            if all(conf["tablename"]+"." not in s for s in mapped_joins):
+
+                mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + "etl_patient_demographics.patient_id = " + conf["tablename"] +".patient_id ")
+
+        print("mapped_joins -> ",mapped_joins)
+        columns = ", ".join(mapped_columns)
+        joins = ", ".join(mapped_joins)
+
+        query = f"SELECT uuid() as id, {columns} from etl_patient_demographics {joins.replace(',','')} limit 100"
+        print("query -> ",query)
+
+        log.info("========= Successfully generated query ==========")
+
+        return query
+    except Exception as e:
+        log.error("Error importing config ==> %s", str(e))
+        print("Error importing config ==> %s", e)
+
+        return e
+
+
 @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str):
-    query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv limit 100")
+    query = text(generate_query(baselookup))
+    # query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv ")
 
     with SessionLocal() as session:
         result = session.execute(query)
         print("result=============> ",result)
 
-        # desc = cursor.description
-        # column_names = [col[0] for col in desc]
-        # baseRepo = [dict(zip(column_names, row))
-        #         for row in cursor.fetchall()]
         columns=result.keys()
         baseRepoLoaded = [dict(zip(columns,row)) for row in result]
         print("result=============> ",baseRepoLoaded)
-
-        # baseRepo = indicator_list_entity(baseRepo)
-        # session.shutdown()
 
         return baseRepoLoaded
