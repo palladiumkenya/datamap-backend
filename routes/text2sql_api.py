@@ -1,3 +1,4 @@
+import functools
 import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -55,6 +56,7 @@ tables = ["Linelist_FACTART", "LineListTransHTS", "LinelistPrep", "LinelistPrepA
           "LinelistHTSEligibilty", "LineListOVCEligibilityAndEnrollments", "LineListOTZEligibilityAndEnrollments",
           "LineListPBFW", "LineListTransPNS"]
 sql_database = SQLDatabase(engine, include_tables=tables)
+CACHE_TIMEOUT = 3600  # 1 hour
 
 
 def get_dictionary_info():
@@ -114,6 +116,11 @@ def get_dictionary_info():
     return tables_info
 
 
+@functools.lru_cache(maxsize=None)
+def get_dictionary_info_cached():
+    return get_dictionary_info()
+
+
 # Endpoint to retrieve data based on natural language query
 class NaturalLanguageQuery(BaseModel):
     question: str
@@ -127,7 +134,7 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         # Create Object Index and Query Engine
         table_node_mapping = SQLTableNodeMapping(sql_database)
         obj_index = ObjectIndex.from_objects(
-            get_dictionary_info(),
+            get_dictionary_info_cached(),
             table_node_mapping,
             VectorStoreIndex,
         )
@@ -264,7 +271,7 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
 async def get_table_descriptions():
     try:
         descriptions = []
-        tables_info = get_dictionary_info()
+        tables_info = get_dictionary_info_cached()
         for table in tables_info:
             descriptions.append({
                 "table_name": table.table_name,
