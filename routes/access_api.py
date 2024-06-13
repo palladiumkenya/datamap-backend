@@ -34,9 +34,9 @@ async def add_connection(data: SaveDBConnection):
         raise HTTPException(status_code=500, detail=e)
 
 
-@router.delete('/delete_connection')
-async def delete_connection(_id: str):
-    credential = AccessCredentials.objects(id=_id).delete()
+@router.delete('/delete_connection/{connection_id}')
+async def delete_connection(connection_id: str):
+    credential = AccessCredentials.objects(id=connection_id).delete()
     return credential
 
 
