@@ -17,7 +17,7 @@ def data_dictionary_entity(dictionary) -> dict:
 def data_dictionary_term_entity(dictionary) -> dict:
     return {
         "term_id": str(dictionary["id"]),
-        "dictionary_id": str(dictionary["dictionary_id"]),
+        "dictionary": str(dictionary["dictionary"]),
         "term": str(dictionary["term"]),
         "data_type": str(dictionary["data_type"]),
         "is_required": bool(dictionary["is_required"]),
