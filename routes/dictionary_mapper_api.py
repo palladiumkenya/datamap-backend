@@ -1,6 +1,9 @@
+from fastapi import  Depends, HTTPException
+
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker, Session
 
 import json
 from fastapi import APIRouter
@@ -14,7 +17,7 @@ import logging
 
 from models.models import AccessCredentials,IndicatorVariables
 from database import database
-from serializers.indicator_selector_serializer import indicator_selector_list_entity,indicator_list_entity
+from serializers.dictionary_mapper_serializer import indicator_selector_list_entity,indicator_list_entity
 from serializers.access_credentials_serializer import access_credential_list_entity
 
 
@@ -32,32 +35,69 @@ router = APIRouter()
 
 
 # Create a SQLite database engine
-def get_connection_string():
-    credentials = AccessCredentials.objects().all()
-    if credentials:
-        credentials = access_credential_list_entity(credentials)
-
-        connection_string = credentials
-
-        # engine = create_engine(connection_string[0]["conn_string"])
-        engine = create_engine(connection_string[0]["conn_string"])
-
-
-        return engine
-
-
-engine = get_connection_string()
+# def createEngine():
+#     credentials = AccessCredentials.objects().all()
+#     if credentials:
+#         credentials = access_credential_list_entity(credentials)
+#
+#         connection_string = credentials
+#
+#         # engine = create_engine(connection_string[0]["conn_string"])
+#         engine = create_engine(connection_string[0]["conn_string"])
+#
+#
+#         return engine
 
 
-# Create an inspector object to inspect the database
-inspector = inspect(engine)
-metadata = MetaData()
-metadata.reflect(bind=engine)
+
+# @app.on_event("startup")
+# async def createEngine():
+#     engine=get_connection_string()
+
+
+# # Create an inspector object to inspect the database
+engine = None
+inspector = None
+# engine= createEngine()
+# inspector = inspect(engine)
+# metadata = MetaData()
+# metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def createEngine():
+    global engine, inspector, metadata
+    try:
+        credentials = AccessCredentials.objects().all()
+        if credentials:
+            credentials = access_credential_list_entity(credentials)
+            connection_string = credentials
+            # engine = create_engine(connection_string[0]["conn_string"])
+            engine = create_engine(connection_string[0]["conn_string"])
+
+            inspector = inspect(engine)
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+
+    except SQLAlchemyError as e:
+        # Log the error or handle it as needed
+        raise HTTPException(status_code=500, detail="Database connection error")
 
 
+def get_db():
+    db_session = SessionLocal()
+    try:
+        yield db_session
+    finally:
+        db_session.close()
+
+@router.on_event("startup")
+async def startup_event():
+    createEngine()
+    if engine:
+        SessionLocal.configure(bind=engine)
+    else:
+        raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
 @router.get('/base_schemas')
@@ -85,7 +125,7 @@ async def base_schemas():
             df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
             base_variables = []
             for i in range(0, df.shape[0]):
-                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and baseRepository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
+                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
                 # results = database.execute_query(query)
                 rows= cass_session.execute(query)
                 results = []
@@ -215,8 +255,8 @@ async def add_mapped_variables(variables:List[object]):
         for variableSet in variables:
             print("variableSet =============> ",variableSet)
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
-                                                   datatype=variableSet["datatype"], baseRepository=variableSet["baseRepository"],
-                                                   base_variable_mapped_to=variableSet["baseVariableMappedTo"])
+                                                   datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
+                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"])
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
@@ -305,12 +345,12 @@ def generate_query(baselookup:str):
 
 
 @router.get('/load_data/{baselookup}')
-async def load_data(baselookup:str):
+async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
     try:
         query = text(generate_query(baselookup))
         # query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv ")
 
-        with SessionLocal() as session:
+        with db_session as session:
             result = session.execute(query)
             print("result=============> ",result)
 
