@@ -1,12 +1,14 @@
 import codecs
 import csv
+from collections import defaultdict
 
 from fastapi import APIRouter, UploadFile
+from pydantic import BaseModel, Field
 
 from database import database
 from models.models import DataDictionaries, DataDictionaryTerms, AccessCredentials
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_entity, \
-    data_dictionary_terms_list_entity
+    data_dictionary_terms_list_entity, data_dictionary_term_entity
 
 router = APIRouter()
 
@@ -16,13 +18,15 @@ async def data_dictionaries():
     dictionaries = DataDictionaries.objects().all()
     dictionary_data = []
 
-    for dictionary in dictionaries:
-        terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary.id)
-        data_source = AccessCredentials.objects.filter(id=dictionary.datasource_id)
-        response_terms = data_dictionary_terms_list_entity(terms)
-        dictionary_data.append({"name": dictionary.name, "data_source": dictionary.name, "dictionary_terms": response_terms})
-
-    return dictionary_data
+    terms = DataDictionaryTerms.objects.all()
+    response_terms = data_dictionary_terms_list_entity(terms)
+    grouped_terms = defaultdict(list)
+    for term in response_terms:
+        grouped_terms[term['dictionary']].append(term)
+    # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
+    formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
+                       grouped_terms.items()]
+    return formatted_terms
 
 
 def add_data_dictionary():
@@ -79,4 +83,48 @@ async def upload_data_dictionary_terms(
             )
             # Save the data dictionary terms to the database
             term_obj.save()
+    return {"message": "Data dictionary terms uploaded successfully"}
+
+
+class SaveDataDictionary(BaseModel):
+    data: list = Field(..., description="")
+    dictionary: str = Field(..., description="")
+
+
+@router.post("/add_data_dictionary_terms")
+async def add_data_dictionary_terms(
+        data: SaveDataDictionary,
+):
+
+    for row in data.data:
+        term = row['column']
+        data_type = row['data_type']
+        is_required = bool(row['is_required'])
+        term_description = row['description'] or None
+        expected_values = row['expected_values'] or None
+
+        # Check if the term already exists
+        term_obj = DataDictionaryTerms.objects.filter(dictionary=data.dictionary, term=term).allow_filtering().first()
+
+        if term_obj:
+            # If the term exists, update it
+            term_obj.data_type = data_type
+            term_obj.is_required = is_required
+            term_obj.term_description = term_description
+            term_obj.expected_values = expected_values
+            term_obj.save()
+        else:
+            # If the term doesn't exist, create a new one
+            term_obj = DataDictionaryTerms(
+                dictionary=data.dictionary,
+                term=term,
+                data_type=data_type,
+                is_required=is_required,
+                term_description=term_description,
+                expected_values=expected_values
+            )
+            term_obj.save()
+
+        # Save the data dictionary terms to the database
+        term_obj.save()
     return {"message": "Data dictionary terms uploaded successfully"}
