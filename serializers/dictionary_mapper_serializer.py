@@ -1,7 +1,7 @@
 def indicator_selector_entity(variable) -> dict:
     return {
         "id": str(variable["id"]),
-        "indicator": str(variable["indicator"]),
+        "base_repository": str(variable["base_repository"]),
         "base_variable_mapped_to": str(variable["base_variable_mapped_to"]),
         "tablename": variable["tablename"],
         "columnname": variable["columnname"],
