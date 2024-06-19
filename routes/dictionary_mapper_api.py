@@ -33,35 +33,10 @@ log.addHandler(handler)
 router = APIRouter()
 
 
-
-# Create a SQLite database engine
-# def createEngine():
-#     credentials = AccessCredentials.objects().all()
-#     if credentials:
-#         credentials = access_credential_list_entity(credentials)
-#
-#         connection_string = credentials
-#
-#         # engine = create_engine(connection_string[0]["conn_string"])
-#         engine = create_engine(connection_string[0]["conn_string"])
-#
-#
-#         return engine
-
-
-
-# @app.on_event("startup")
-# async def createEngine():
-#     engine=get_connection_string()
-
-
 # # Create an inspector object to inspect the database
 engine = None
 inspector = None
-# engine= createEngine()
-# inspector = inspect(engine)
-# metadata = MetaData()
-# metadata.reflect(bind=engine)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -102,26 +77,20 @@ async def startup_event():
 
 @router.get('/base_schemas')
 async def base_schemas():
-    # URL of the Excel file
-    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
-    # Download the file
-    response = requests.get(excel_url)
 
     # Check if download was successful
-    if response.status_code == 200:
+    try:
 
-        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
-            f.write(response.content)
-        print('File downloaded successfully')
-
-        wb = load_workbook(BytesIO(response.content))
+        wb = load_workbook('configs/data_dictionary/dictionary.xlsx')
         sheets = wb.sheetnames
-
+        print('sheets ', sheets)
         cass_session = database.cassandra_session_factory()
 
         schemas = []
 
         for schema in sheets:
+            print('schema --> ', schema)
+
             df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
             base_variables = []
             for i in range(0, df.shape[0]):
@@ -140,30 +109,16 @@ async def base_schemas():
             baseSchemaObj["base_variables"] = base_variables
 
             schemas.append(baseSchemaObj)
-
-    else:
-        print('Failed to download file')
-
-    return schemas
+        return schemas
+    except Exception as e:
+        log.error('System ran into an error --> ', e)
+        return e
 
 
 
 @router.get('/base_schema_variables/{base_lookup}')
 async def base_variables(base_lookup: str):
-    # URL of the Excel file
-    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
-    # Download the file
-    response = requests.get(excel_url)
-
-    # Check if download was successful
-    if response.status_code == 200:
-
-        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
-            f.write(response.content)
-        print('File downloaded successfully')
-
-        wb = load_workbook(BytesIO(response.content))
-        sheets = wb.sheetnames
+    try:
 
         cass_session = database.cassandra_session_factory()
 
@@ -174,7 +129,6 @@ async def base_variables(base_lookup: str):
         for i in range(0, df.shape[0]):
             query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
             rows= cass_session.execute(query)
-            print(query)
             results = []
             for row in rows:
                 results.append(row)
@@ -187,40 +141,27 @@ async def base_variables(base_lookup: str):
         baseSchemaObj["base_variables"] = base_variables
 
         schemas.append(baseSchemaObj)
-
-    else:
-        print('Failed to download file')
-
-    return schemas
+        return schemas
+    except Exception as e:
+        log.error('System ran into an error fetching base_schema_variables --->', e)
+        return e
 
 
 @router.get('/base_variables/{base_lookup}')
 async def base_variables(base_lookup: str):
-    # URL of the Excel file
-    excel_url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPNM8D6PJQPHjFur1f7QBE0x2B9HqOFzIkHQgwOcOQJlKR4EcHWCC5dP5Fm7MBlUN2G3QymZiu_xKy/pub?output=xlsx'
 
-    # Download the file
-    response = requests.get(excel_url)
-
-    # Check if download was successful
-    if response.status_code == 200:
-        with open('configs/data_dictionary/dictionary.xlsx', 'wb') as f:
-            f.write(response.content)
-        print('File downloaded successfully')
+    try:
         df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
-
-        # Display the DataFrame
-        print(df.head())
 
         base_variables = []
         for i in range(0, df.shape[0]):
             base_variables.append(df['Column/Variable Name'][i])
-        print('base_variables===>',base_variables)
-    else:
-        print('Failed to download file')
-    print('base_lookup',base_lookup)
+        return base_variables
+    except Exception as e:
+        log.error('System ran into an error fetching base_variables --->', e)
+        return e
 
-    return base_variables
+
 
 
 
@@ -230,10 +171,8 @@ async def getDatabaseColumns():
         dbTablesAndColumns={}
 
         table_names = metadata.tables.keys()
-        print("table_names =======>", table_names)
 
         for table_name in table_names:
-            print("dbTablesAndColumns =======>",table_name)
 
             columns = inspector.get_columns(table_name)
 
@@ -246,14 +185,14 @@ async def getDatabaseColumns():
         # print("dbTablesAndColumns =======>",dbTablesAndColumns)
         return dbTablesAndColumns
     except SQLAlchemyError as e:
-        print(f"Error reflecting database: {e}")
+        log.error('Error reflecting database: --->', e)
+
 
 
 @router.post('/add_mapped_variables')
 async def add_mapped_variables(variables:List[object]):
     try:
         for variableSet in variables:
-            print("variableSet =============> ",variableSet)
             IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
                                                    base_variable_mapped_to=variableSet["base_variable_mapped_to"])
@@ -327,19 +266,16 @@ def generate_query(baselookup:str):
 
                 mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + "etl_patient_demographics.patient_id = " + conf["tablename"].strip() +".patient_id ")
 
-        print("mapped_joins -> ",mapped_joins)
         columns = ", ".join(mapped_columns)
         joins = ", ".join(mapped_joins)
 
         query = f"SELECT uuid() as id, {columns} from etl_patient_demographics {joins.replace(',','')} limit 100"
-        print("query -> ",query)
 
         log.info("========= Successfully generated query ==========")
 
         return query
     except Exception as e:
         log.error("Error importing config ==> %s", str(e))
-        print("Error importing config ==> %s", e)
 
         return e
 
@@ -352,11 +288,9 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
         with db_session as session:
             result = session.execute(query)
-            print("result=============> ",result)
 
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
-            print("result=============> ",baseRepoLoaded)
 
             return baseRepoLoaded
     except Exception as e:
