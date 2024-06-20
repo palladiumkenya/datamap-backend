@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
 from routes import access_api, dictionary_mapper_api, data_dictionary_api, text2sql_api
-from models.models import AccessCredentials, IndicatorVariables, DataDictionaries, DataDictionaryTerms
+from models.models import AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms
 
 app = FastAPI()
 
@@ -22,7 +22,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     sync_table(AccessCredentials)
-    sync_table(IndicatorVariables)
+    sync_table(MappedVariables)
     sync_table(DataDictionaries)
     sync_table(DataDictionaryTerms)
 

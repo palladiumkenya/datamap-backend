@@ -6,6 +6,7 @@ def indicator_selector_entity(variable) -> dict:
         "tablename": variable["tablename"],
         "columnname": variable["columnname"],
         "datatype": variable["datatype"],
+        "join_by": variable["join_by"],
         "created_at": str(variable["created_at"]),
         "updated_at": str(variable["updated_at"])
 
@@ -26,6 +27,7 @@ def indicator_entity(indicator) -> dict:
 
 def indicator_list_entity(indicators) -> list:
 
-    print("indicator_entity(indicator) for indicator in indicators",[indicator_entity(indicator) for indicator in indicators], indicators)
     return [indicator_entity(indicator) for indicator in indicators]
+
+
 
