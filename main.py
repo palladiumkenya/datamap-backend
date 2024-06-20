@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
 from routes import access_api, dictionary_mapper_api, data_dictionary_api, text2sql_api
-from models.models import AccessCredentials, IndicatorVariables, DataDictionaries, DataDictionaryTerms
+from models.models import AccessCredentials, IndicatorVariables, DataDictionaries, DataDictionaryTerms, DataDictionariesUSL, DataDictionaryTermsUSL
 
 app = FastAPI()
 
@@ -25,6 +25,8 @@ async def startup_event():
     sync_table(IndicatorVariables)
     sync_table(DataDictionaries)
     sync_table(DataDictionaryTerms)
+    sync_table(DataDictionariesUSL)
+    sync_table(DataDictionaryTermsUSL)
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
