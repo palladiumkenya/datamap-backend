@@ -1,7 +1,9 @@
 from collections import defaultdict
+from uuid import UUID
+
 from cassandra.cqlengine.query import DoesNotExist
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, UploadFile, HTTPException
 from pydantic import BaseModel, Field
 
 from database import database
@@ -12,9 +14,9 @@ from serializers.data_dictionary_serializer import data_dictionary_list_entity, 
 router = APIRouter()
 
 
+# USL dictionary management apis
 @router.get("/data_dictionary_terms_usl")
 async def data_dictionary_terms_usl():
-
     terms = DataDictionaryTermsUSL.objects.all()
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
@@ -34,24 +36,10 @@ async def data_dictionaries_usl():
     return response_terms
 
 
-@router.get("/data_dictionary_terms")
-async def data_dictionary_terms():
-
-    terms = DataDictionaryTerms.objects.all()
-    response_terms = data_dictionary_terms_list_entity(terms)
-    grouped_terms = defaultdict(list)
-    for term in response_terms:
-        grouped_terms[term['dictionary']].append(term)
-    # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
-    formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
-                       grouped_terms.items()]
-    return formatted_terms
-
-
-@router.get("/data_dictionary_terms/{dictionary_id}")
-async def data_dictionary_terms(dictionary_id: str):
+@router.get("/data_dictionary_terms_usl/{dictionary_id}")
+async def data_dictionary_term_usl(dictionary_id: str):
     try:
-        terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
+        terms = DataDictionaryTermsUSL.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
 
         response_terms = data_dictionary_terms_list_entity(terms)
         if not response_terms:
@@ -67,14 +55,6 @@ async def data_dictionary_terms(dictionary_id: str):
 
     except DoesNotExist:
         return {"name": None, "dictionary_terms": []}
-
-
-@router.get("/data_dictionaries")
-async def data_dictionaries():
-    dictionaries = DataDictionaries.objects().all()
-
-    response_terms = data_dictionary_usl_list_entity(dictionaries)
-    return response_terms
 
 
 class SaveUSLDataDictionary(BaseModel):
@@ -138,6 +118,86 @@ async def add_data_dictionary_terms(
         # Save the data dictionary terms to the database
         term_obj.save()
     return {"message": "Data dictionary terms uploaded successfully"}
+
+
+class DataDictionaryTermsUSLUpdate(BaseModel):
+    data_type: str = None
+    is_required: bool = None
+    term_description: str = None
+    expected_values: str = None
+    is_active: bool = None
+
+
+@router.put("/update_data_dictionary_terms_usl/{term_id}")
+def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUpdate):
+    term = DataDictionaryTermsUSL.objects(id=UUID(term_id)).first()
+    if not term:
+        raise HTTPException(status_code=404, detail="Data dictionary term not found")
+
+    if data.data_type is not None:
+        term.data_type = data.data_type
+    if data.is_required is not None:
+        term.is_required = data.is_required
+    if data.term_description is not None:
+        term.term_description = data.term_description
+    if data.expected_values is not None:
+        term.expected_values = data.expected_values
+    term.save()
+    return term
+
+
+@router.delete("/delete_data_dictionary_terms_usl/{term_id}")
+def delete_data_dictionary_term_usl(term_id: str):
+    term = DataDictionaryTermsUSL.objects(id=UUID(term_id)).first()
+    if not term:
+        raise HTTPException(status_code=404, detail="Data dictionary term not found")
+
+    term.delete()
+    return {"message": "Data dictionary term deleted successfully"}
+
+
+# Datamap dictionary management apis
+@router.get("/data_dictionary_terms")
+async def data_dictionary_terms():
+
+    terms = DataDictionaryTerms.objects.all()
+    response_terms = data_dictionary_terms_list_entity(terms)
+    grouped_terms = defaultdict(list)
+    for term in response_terms:
+        grouped_terms[term['dictionary']].append(term)
+    # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
+    formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
+                       grouped_terms.items()]
+    return formatted_terms
+
+
+@router.get("/data_dictionary_terms/{dictionary_id}")
+async def data_dictionary_term(dictionary_id: str):
+    try:
+        terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
+
+        response_terms = data_dictionary_terms_list_entity(terms)
+        if not response_terms:
+            return {"name": None, "dictionary_terms": []}
+
+        grouped_terms = defaultdict(list)
+        for term in response_terms:
+            grouped_terms[term['dictionary']].append(term)
+
+        formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
+                           grouped_terms.items()]
+        return formatted_terms[0]
+
+    except DoesNotExist:
+        return {"name": None, "dictionary_terms": []}
+
+
+@router.get("/data_dictionaries")
+async def data_dictionaries():
+    dictionaries = DataDictionaries.objects().all()
+
+    response_terms = data_dictionary_usl_list_entity(dictionaries)
+    return response_terms
 
 
 def sync_dictionaries(datasource_id: str) -> dict:
