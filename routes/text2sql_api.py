@@ -263,7 +263,8 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         return {"sql_query": sql_query, "data": data}
     except Exception as e:
         log.error(f"Error processing query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        #raise HTTPException(status_code=500, detail=str(e))
+        return {"sql_query": sql_query, "data": []}
 
 
 # Endpoint to retrieve table descriptions
