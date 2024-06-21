@@ -244,13 +244,11 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         print("First Identified Table:", first_identified_table)
         print("Second Identified Table:", second_identified_table)
 
-
         custom_prompt_1 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement."
                            f"Write a SQL query to answer the following question: {nl_query.question}. "
                            f"Using the table {first_identified_table}."
                            "custom_prompt Please take note of the column names which are in quotes and their description."
                            )
-
 
         custom_prompt_2 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement. "
                            f"Write a SQL query to answer the following question: {nl_query.question}, using the table {first_identified_table}. "
@@ -260,10 +258,8 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
 
         # Step 3: Determine if the question requires the use of the second table
 
-
         def is_join_required(first_table_name):
             return first_table_name in ["Linelist_FACTART", "LineListTransHTS", "LineListTransPNS", "LinelistHTSEligibilty"]
-
 
         first_table_name = first_identified_table.table_name
         print(first_table_name)
@@ -298,7 +294,8 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         return {"sql_query": sql_query, "data": data}
     except Exception as e:
         log.error(f"Error processing query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"sql_query": sql_query, "data": []}
+        # raise HTTPException(status_code=500, detail=str(e))
 
 
 # Endpoint to retrieve table descriptions
