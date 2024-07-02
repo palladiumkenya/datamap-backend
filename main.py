@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
 from routes import access_api, dictionary_mapper_api, data_dictionary_api, text2sql_api
-from models.models import AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms
+from models.models import AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms, DataDictionariesUSL, DataDictionaryTermsUSL
 
 app = FastAPI()
 
