@@ -70,7 +70,7 @@ def get_dictionary_info():
     for table_name in tables:
         table_description = ""
         columns_info = {}
-        table_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}"
+        table_glossary_uri = f"https://{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}"
         try:
             response = requests.get(table_glossary_uri, headers={
                                     "Authorization": "Bearer " + jwt_token}, verify=False)
@@ -79,20 +79,21 @@ def get_dictionary_info():
             if response.status_code // 100 == 2:
                 glossary_term = response.json()
                 table_description = glossary_term.get("description")
-                if table_description:
+                if table_description is not None:
+                    # Get column descriptions dynamically from the MSSQL table
                     table = Table(table_name, metadata, autoload=True)
                     columns = table.columns.keys()
                     columns_info_list = []
                     for column_name in columns:
-                        column_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}.{column_name}"
+                        column_glossary_uri = f"https://{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}.{column_name}"
                         try:
                             response = requests.get(column_glossary_uri,
-                                                    headers={"Authorization": "Bearer " + jwt_token}, verify=False)
+                                                    headers={"Authorization": "Bearer " + jwt_token})
                             response.raise_for_status()
 
                             if response.status_code // 100 == 2:
                                 column_info = response.json()
-                                column_desc = f"{column_name}: {column_info.get('description')}"
+                                column_desc = f"\"{column_name}\": {column_info.get('description')}"
                                 columns_info_list.append(column_desc)
                         except requests.exceptions.HTTPError as he:
                             if he.response.status_code // 100 == 4:
@@ -112,8 +113,8 @@ def get_dictionary_info():
 
         tables_info.append(SQLTableSchema(
             table_name=table_name,
-            context_str=(table_description +
-                         '. These are columns in the table: ' + columns_info)
+            context_str=('description of the table: ' + table_description +
+                         '. These are columns in the table and their descriptions: ' + columns_info)
         ))
 
     return tables_info
@@ -131,13 +132,14 @@ class NaturalLanguageQuery(BaseModel):
 
 @router.post('/query_from_natural_language')
 async def query_from_natural_language(nl_query: NaturalLanguageQuery):
+    table_schema_objs = get_dictionary_info_cached()
     try:
         log.debug(f"Received query: {nl_query.question}")
 
         # Create Object Index and Query Engine
         table_node_mapping = SQLTableNodeMapping(sql_database)
         obj_index = ObjectIndex.from_objects(
-            get_dictionary_info_cached(),
+            table_schema_objs,
             table_node_mapping,
             VectorStoreIndex,
         )
@@ -145,9 +147,10 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
             sql_database,
             obj_index.as_retriever(similarity_top_k=2),
         )
+        # default retrieval (return_raw=True)
         nl_sql_retriever = NLSQLRetriever(
             sql_database,
-            table_retriever=obj_index.as_retriever(similarity_top_k=2),
+            # table_retriever=obj_index.as_retriever(similarity_top_k=2),
             # sql_only=True,
         )
 
