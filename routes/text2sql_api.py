@@ -1,30 +1,29 @@
 import functools
-import logging
 import os
-
-import requests
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import Table, create_engine, inspect, MetaData, text
+from sqlalchemy.orm import sessionmaker
+import requests
 from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import (
     ObjectIndex,
     SQLTableNodeMapping,
     SQLTableSchema,
 )
-from llama_index.legacy import SQLDatabase
 from llama_index.llms.openai import OpenAI
-from pydantic import BaseModel
-from sqlalchemy import MetaData, Table, create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
+from llama_index.legacy import SQLDatabase
+
+import logging
 
 from settings import settings
 
 # Set up logging
 log = logging.getLogger()
-log.setLevel("DEBUG")
+log.setLevel('DEBUG')
 handler = logging.StreamHandler()
-handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 log.addHandler(handler)
 
 router = APIRouter()
@@ -35,10 +34,12 @@ DB = settings.REPORTING_DB
 USER = settings.REPORTING_USER
 
 # Construct the connection string
-SQL_DATABASE_URL = f"mssql+pymssql://{USER}:{DB_PASSWORD}@{DB_HOST_PORT}/{DB}"
+SQL_DATABASE_URL = f'mssql+pymssql://{USER}:{DB_PASSWORD}@{DB_HOST_PORT}/{DB}'
 
 # Create an engine instance
-engine = create_engine(SQL_DATABASE_URL, connect_args={}, echo=False)
+engine = create_engine(
+    SQL_DATABASE_URL, connect_args={}, echo=False
+)
 metadata = MetaData()
 metadata.reflect(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -50,18 +51,9 @@ os.environ["OPENAI_API_KEY"] = settings.OPENAI_KEY
 llm = OpenAI(temperature=0, model="gpt-4o")
 
 # Database setup
-tables = [
-    "Linelist_FACTART",
-    "LineListTransHTS",
-    "LinelistPrep",
-    "LinelistPrepAssessments",
-    "LinelistHEI",
-    "LinelistHTSEligibilty",
-    "LineListOVCEligibilityAndEnrollments",
-    "LineListOTZEligibilityAndEnrollments",
-    "LineListPBFW",
-    "LineListTransPNS",
-]
+tables = ["Linelist_FACTART", "LineListTransHTS", "LinelistPrep", "LinelistPrepAssessments", "LinelistHEI",
+          "LinelistHTSEligibilty", "LineListOVCEligibilityAndEnrollments", "LineListOTZEligibilityAndEnrollments",
+          "LineListPBFW", "LineListTransPNS"]
 sql_database = SQLDatabase(engine, include_tables=tables)
 CACHE_TIMEOUT = 3600  # 1 hour
 
@@ -76,15 +68,10 @@ def get_dictionary_info():
     for table_name in tables:
         table_description = ""
         columns_info = {}
-        table_glossary_uri = (
-            f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}"
-        )
+        table_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}"
         try:
-            response = requests.get(
-                table_glossary_uri,
-                headers={"Authorization": "Bearer " + jwt_token},
-                verify=False,
-            )
+            response = requests.get(table_glossary_uri, headers={
+                                    "Authorization": "Bearer " + jwt_token}, verify=False)
             response.raise_for_status()
 
             if response.status_code // 100 == 2:
@@ -98,10 +85,8 @@ def get_dictionary_info():
                     for column_name in columns:
                         column_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}.{column_name}"
                         try:
-                            response = requests.get(
-                                column_glossary_uri,
-                                headers={"Authorization": "Bearer " + jwt_token},
-                            )
+                            response = requests.get(column_glossary_uri,
+                                                    headers={"Authorization": "Bearer " + jwt_token})
                             response.raise_for_status()
 
                             if response.status_code // 100 == 2:
@@ -111,34 +96,24 @@ def get_dictionary_info():
                         except requests.exceptions.HTTPError as he:
                             if he.response.status_code // 100 == 4:
                                 print(
-                                    f"Glossary term not found for URI: {column_glossary_uri}"
-                                )
+                                    f"Glossary term not found for URI: {column_glossary_uri}")
                             else:
                                 print(
                                     f"Failed to retrieve column description for {column_name} with message {he.response.text}",
-                                    he,
-                                )
+                                    he)
                     columns_info = ". ".join(columns_info_list)
         except requests.exceptions.HTTPError as he:
             if he.response.status_code // 100 == 4:
                 print(f"Glossary term not found for URI: {table_glossary_uri}")
             else:
                 print(
-                    f"Failed to retrieve table description for {table_name} with message {he.response.text}",
-                    he,
-                )
+                    f"Failed to retrieve table description for {table_name} with message {he.response.text}", he)
 
-        tables_info.append(
-            SQLTableSchema(
-                table_name=table_name,
-                context_str=(
-                    "description of the table: "
-                    + table_description
-                    + ". These are columns in the table and their descriptions: "
-                    + columns_info
-                ),
-            )
-        )
+        tables_info.append(SQLTableSchema(
+            table_name=table_name,
+            context_str=('description of the table: ' + table_description +
+                         '. These are columns in the table and their descriptions: ' + columns_info)
+        ))
 
     return tables_info
 
@@ -148,14 +123,12 @@ def get_dictionary_info_cached():
     return get_dictionary_info()
 
 
+# Endpoint to retrieve data based on natural language query
 class NaturalLanguageQuery(BaseModel):
     question: str
 
 
-# Endpoint to retrieve data based on natural language query
-
-
-@router.post("/query_from_natural_language")
+@router.post('/query_from_natural_language')
 async def query_from_natural_language(nl_query: NaturalLanguageQuery):
     question = nl_query.question
     try:
@@ -279,28 +252,21 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         print("First Identified Table:", first_identified_table)
         print("Second Identified Table:", second_identified_table)
 
-        custom_prompt_1 = (
-            f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement."
-            f"Write a SQL query to answer the following question: {question}. "
-            f"Using the table {first_identified_table}."
-            "custom_prompt Please take note of the column names which are in quotes and their description."
-        )
+        custom_prompt_1 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement."
+                           f"Write a SQL query to answer the following question: {question}. "
+                           f"Using the table {first_identified_table}."
+                           "custom_prompt Please take note of the column names which are in quotes and their description."
+                           )
 
-        custom_prompt_2 = (
-            f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement. "
-            f"Write a SQL query to answer the following question: {question}, using the table {first_identified_table}. "
-            "Please take note of the column names which are in quotes and their description. Do not use the two tables if you are not merging, be careful to differentiate which column names are in which table."
-            f"If the question requires joining or merging, join with {second_identified_table} to retrieve the required variables."
-        )
+        custom_prompt_2 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement. "
+                           f"Write a SQL query to answer the following question: {question}, using the table {first_identified_table}. "
+                           "Please take note of the column names which are in quotes and their description. Do not use the two tables if you are not merging, be careful to differentiate which column names are in which table."
+                           f"If the question requires joining or merging, join with {second_identified_table} to retrieve the required variables."
+                           )
 
         # Step 3: Determine if the question requires the use of the second table
         def is_join_required(first_table_name):
-            return first_table_name in [
-                "Linelist_FACTART",
-                "LineListTransHTS",
-                "LineListTransPNS",
-                "LinelistHTSEligibilty",
-            ]
+            return first_table_name in ["Linelist_FACTART", "LineListTransHTS", "LineListTransPNS", "LinelistHTSEligibilty"]
 
         first_table_name = first_identified_table.table_name
         print(first_table_name)
@@ -335,15 +301,16 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
 
 
 # Endpoint to retrieve table descriptions
-@router.get("/table_descriptions")
+@router.get('/table_descriptions')
 async def get_table_descriptions():
     try:
         descriptions = []
         tables_info = get_dictionary_info_cached()
         for table in tables_info:
-            descriptions.append(
-                {"table_name": table.table_name, "description": table.context_str}
-            )
+            descriptions.append({
+                "table_name": table.table_name,
+                "description": table.context_str
+            })
         return {"tables": descriptions}
     except Exception as e:
         log.error(f"Error retrieving table descriptions: {e}")
