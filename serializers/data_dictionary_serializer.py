@@ -17,7 +17,7 @@ def data_dictionary_entity(dictionary) -> dict:
 def data_dictionary_term_entity(dictionary) -> dict:
     return {
         "term_id": str(dictionary["id"]),
-        "dictionary_id": str(dictionary["dictionary_id"]),
+        "dictionary": str(dictionary["dictionary"]),
         "term": str(dictionary["term"]),
         "data_type": str(dictionary["data_type"]),
         "is_required": bool(dictionary["is_required"]),
@@ -29,9 +29,22 @@ def data_dictionary_term_entity(dictionary) -> dict:
     }
 
 
+def data_dictionary_usl_entity(dictionary) -> dict:
+    return {
+        "name": str(dictionary["name"]),
+        "id": str(dictionary["id"]),
+        "created_at": dictionary["created_at"],
+        "updated_at": dictionary["updated_at"]
+    }
+
+
 def data_dictionary_list_entity(dictionaries) -> list:
     return [data_dictionary_entity(dictionary) for dictionary in dictionaries]
 
 
 def data_dictionary_terms_list_entity(terms) -> list:
     return [data_dictionary_term_entity(term) for term in terms]
+
+
+def data_dictionary_usl_list_entity(dictionaries) -> list:
+    return [data_dictionary_usl_entity(dictionary) for dictionary in dictionaries]
