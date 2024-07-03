@@ -5,8 +5,6 @@ from pydantic import BaseModel
 from sqlalchemy import Table, create_engine, inspect, MetaData, text
 from sqlalchemy.orm import sessionmaker
 import requests
-from llama_index.core.retrievers import NLSQLRetriever
-from llama_index.core.indices.struct_store import SQLTableRetrieverQueryEngine
 from llama_index.core import VectorStoreIndex
 from llama_index.core.objects import (
     ObjectIndex,
@@ -24,7 +22,8 @@ from settings import settings
 log = logging.getLogger()
 log.setLevel('DEBUG')
 handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 log.addHandler(handler)
 
 router = APIRouter()
@@ -49,7 +48,7 @@ inspector = inspect(engine)
 
 # OpenAI setup
 os.environ["OPENAI_API_KEY"] = settings.OPENAI_KEY
-llm = OpenAI(temperature=0, model="gpt-3.5-turbo")
+llm = OpenAI(temperature=0, model="gpt-4o")
 
 # Database setup
 tables = ["Linelist_FACTART", "LineListTransHTS", "LinelistPrep", "LinelistPrepAssessments", "LinelistHEI",
@@ -71,13 +70,15 @@ def get_dictionary_info():
         columns_info = {}
         table_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}"
         try:
-            response = requests.get(table_glossary_uri, headers={"Authorization": "Bearer " + jwt_token}, verify=False)
+            response = requests.get(table_glossary_uri, headers={
+                                    "Authorization": "Bearer " + jwt_token}, verify=False)
             response.raise_for_status()
 
             if response.status_code // 100 == 2:
                 glossary_term = response.json()
                 table_description = glossary_term.get("description")
-                if table_description:
+                if table_description is not None:
+                    # Get column descriptions dynamically from the MSSQL table
                     table = Table(table_name, metadata, autoload=True)
                     columns = table.columns.keys()
                     columns_info_list = []
@@ -85,12 +86,12 @@ def get_dictionary_info():
                         column_glossary_uri = f"{om_host}/api/v1/glossaryTerms/name/text2sql.{table_name}.{column_name}"
                         try:
                             response = requests.get(column_glossary_uri,
-                                                    headers={"Authorization": "Bearer " + jwt_token}, verify=False)
+                                                    headers={"Authorization": "Bearer " + jwt_token})
                             response.raise_for_status()
 
                             if response.status_code // 100 == 2:
                                 column_info = response.json()
-                                column_desc = f"{column_name}: {column_info.get('description')}"
+                                column_desc = f"\"{column_name}\": {column_info.get('description')}"
                                 columns_info_list.append(column_desc)
                         except requests.exceptions.HTTPError as he:
                             if he.response.status_code // 100 == 4:
@@ -110,7 +111,8 @@ def get_dictionary_info():
 
         tables_info.append(SQLTableSchema(
             table_name=table_name,
-            context_str=(table_description + '. These are columns in the table: ' + columns_info)
+            context_str=('description of the table: ' + table_description +
+                         '. These are columns in the table and their descriptions: ' + columns_info)
         ))
 
     return tables_info
@@ -128,26 +130,24 @@ class NaturalLanguageQuery(BaseModel):
 
 @router.post('/query_from_natural_language')
 async def query_from_natural_language(nl_query: NaturalLanguageQuery):
+    question = nl_query.question
     try:
-        log.debug(f"Received query: {nl_query.question}")
-
-        # Create Object Index and Query Engine
+        # store schema information for each table.
+        table_schema_objs = get_dictionary_info_cached()
         table_node_mapping = SQLTableNodeMapping(sql_database)
+
         obj_index = ObjectIndex.from_objects(
-            get_dictionary_info_cached(),
+            table_schema_objs,
             table_node_mapping,
             VectorStoreIndex,
         )
+
+        from llama_index.core.indices.struct_store import SQLTableRetrieverQueryEngine
+
         query_engine = SQLTableRetrieverQueryEngine(
             sql_database,
             obj_index.as_retriever(similarity_top_k=2),
         )
-        nl_sql_retriever = NLSQLRetriever(
-            sql_database,
-            table_retriever=obj_index.as_retriever(similarity_top_k=2),
-            # sql_only=True,
-        )
-
         custom_txt2sql_prompt = """Given an input question, construct a syntactically correct SQL query to run, then look at the results of the query and return a comprehensive and detailed answer. Ensure that you:
                     - Select only the relevant columns needed to answer the question.
                     - Use correct column and table names as provided in the schema description. Avoid querying for columns that do not exist.
@@ -155,14 +155,21 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
                     - Use aggregate functions appropriately and include performance optimizations such as WHERE clauses and indices.
                     - Add additional related information for the user.
                     - Use background & definitions provided for more detailed answer. Follow the instructions.
-                    - Avoid hallucination. If you can't find an answer, say I'm not sure.
+                    - Your are provided with several tables each for a different proram area, ensure you retrive the relevant table.
+                    - do not hallucinate column names. If you can't  find a column name, do not write the sql query say I'm not sure.
+
+                    When answering questions that include the string "PreP," utilize the LinelistPrepAssessments table to construct the SQL code.
+                    When answering questions that include the string "OVC" utilize the  LineListOVCEligibilityAndEnrollments table to construct the SQL code.
+                    When answering questions that include the string "OTZ" utilize the  LineListOTZEligibilityAndEnrollments table to construct the SQL code.
+                    When answering questions that include the string " HEI or infants" utilize the  LinelistHEI table to construct the SQL code.
+                    When answering questions that include the string "PBFW," utilize the LineListPBFW table to construct the SQL code.
+                    When answering questions that include the string "HTS" or "HIV tests"  utilize the LineListTransHTS table to construct the SQL code.
 
 
-                     Special Instructions:
+                    Special Instructions:
                     - Treat "txcurr" and "active patients on treatment" as interchangeable terms in your queries.
-                    - HIV Exposed Infants (HEI) and HEI are used interchangably.
+                    - Exposed Infants (HEI) and HEI are used interchangably.
                     - Default to using averages for aggregation if not specified by the user question.
-                    - If the question involves a KPI not listed below, inform the user by showing the list of available KPIs.
                     - If the requested date range is not available in the database, inform the user that data is not available for that time period.
                     - Use bold and large fonts to highlight keywords in your answer.
                     - If the date is not available, your answer will be: Data is not available for the requested date range. Please modify your query to include a valid date range.
@@ -173,47 +180,34 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
                     - Join ON "PatientPKHASH" AND "MFLCode" for queries that require joins.
                     - txcurr is where IsTxcurr=1. "
                     - When NUPI = NULL means you have not been verified"
-                    - To get unsuppressed clients first filter those with a Valid VL, then check if they are Unsuppressed."
-                    - Get HIV risks(low risk, medium risk, high risk, very high risk) from the LinelistHTSEligibilty table in HIVRiskCategory column "
-                    - To calculate Positivity rate get the number of positive tests from finaltestresults and divide by is Total number of tests (Positives and Negatives)"
-                    - To calculate unsuppression/non-suppression rate, Numerator is valid vl(HasValidVL)and unsuppressed(Validvlsup=0) and the denominator is valid vl (HasValidvl=1)."
-                    - To calculate suppression rate, Numerator is valid suppressed(Validvlsup=1) and the denominator is valid vl (HasValidvl=1)."
-                    - To calculate IIT rate , Numerator is (ARTOutcomeDescription = Loss to follow up)  and the denominator is (ARTOutcomeDescription= loss to follow up and Active)."
+                    - Seroconversion is turning Positive from HIV test
                     - Interruption in treatment (IIT) is the patients with Loss to Follow up outcome description."
+                    - Pre-exposure prophylaxis and PreP are used interchangably
 
                     Additional Instructions:
-                    - Encourage users to provide specific date ranges or intervals for more accurate results.
-                    - Mention the importance of specifying provinces or regions for targeted analysis.
-                    - Provide examples of common SQL syntax errors and how to correct them.
-                    - Offer guidance on interpreting query results, including outliers or unexpected patterns.
-                    - Emphasize the significance of data integrity and potential implications of incomplete or inaccurate data.
-                    - Inform users that data exists from July 2023 for the list of KPIs.
+                    Please confirm the variables names in the schema before generating a query
 
                     You are required to use the following format, each taking one line:
-
                     Question: Question here
                     SQLQuery: SQL Query to run
 
 
                     The text-to-SQL system that might be required to handle queries related to calculating proportions within a dataset. Your system should be able to generate SQL queries to calculate the proportion of a certain category within a dataset table.
 
-                    Instructions:
-
-                    Assume you have a dataset table named Linelist_FACTART containing columns representing different categories.
-                    Your system should generate SQL queries that calculate the proportion of a specific category within the table.
-
                     Example 1 :
                     If a user asks, "What proportion of TxCurr,  have hypertension by county", your system should generate a SQL query like:
 
+
                     SELECT County, COUNT(*) AS TotalTxCurr, SUM(CASE WHEN HasHypertension = 1 THEN 1 ELSE 0 END) AS TotalHypertension, SUM(CASE WHEN HasHypertension = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS ProportionHypertension FROM Linelist_FACTART WHERE ISTxCurr = 1 GROUP BY County;
 
-                    Example 2 :
-                    If a user asks, "What is the proportion of txcurr who were screened for Hypertensive in the last visit"", your system should generate a SQL query like:
+                    Example 2:
+                    If a user asks, "What is the proportion of clients screened for Prep per county", your system should generate a SQL query like:
 
-                    SELECT COUNT(*) AS TX_CURR, COUNT(CASE WHEN ScreenedBPLastVisit = 1 THEN 1 END) AS ScreenedBP, COUNT(CASE WHEN ScreenedBPLastVisit = 1 THEN 1 END) * 100.0 / COUNT(*) AS Proportion_ScreenedForHypertension FROM Linelist_FACTART WHERE ISTxCurr = 1;GROUP BY County;
+                    SELECT County, COUNT(*) AS ScreenedPrep, SUM(CASE WHEN ScreenedPrep = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS ProportionScreenedForPrep FROM LinelistPrepAssessments GROUP BY County;
+
 
                     Example 3 :
-                    If a user asks, "What is unsuppression rate by county", your system should generate a SQL query like:
+                    If a user asks, "What is unsuppression rate of all active clients on treatment by county", your system should generate a SQL query like:
 
                     SELECT County, COUNT(*) AS TotalPatientsWithValidVL, COUNT(CASE WHEN HighViremia = 1 THEN 1 END) AS UnsuppressedPatients, COUNT(CASE WHEN HighViremia = 1 THEN 1 END) * 100.0 / COUNT(*) AS UnsuppressionRate FROM Linelist_FACTART WHERE ISTxCurr = 1 AND HasValidVL = 1 GROUP BY County;
 
@@ -229,29 +223,69 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
                     SELECT County, MAX(CASE WHEN Month = 1 THEN PositivityRate END) AS PositivityRate_Month1, MAX(CASE WHEN Month = 2 THEN PositivityRate END) AS PositivityRate_Month2, MAX(CASE WHEN Month = 3 THEN PositivityRate END) AS PositivityRate_Month3, MAX(CASE WHEN Month = 4 THEN PositivityRate END) AS PositivityRate_Month4, MAX(CASE WHEN Month = 5 THEN PositivityRate END) AS PositivityRate_Month5, MAX(CASE WHEN Month = 6 THEN PositivityRate END) AS PositivityRate_Month6, (MAX(CASE WHEN Month = 6 THEN PositivityRate END) - MAX(CASE WHEN Month = 1 THEN PositivityRate END)) AS PositivityRateDifference, CASE WHEN MAX(CASE WHEN Month = 1 THEN PositivityRate END) <> 0 THEN (((MAX(CASE WHEN Month = 6 THEN PositivityRate END) - MAX(CASE WHEN Month = 1 THEN PositivityRate END)) / MAX(CASE WHEN Month = 1 THEN PositivityRate END)) * 100) ELSE NULL END AS RateDifference FROM ( SELECT County, MONTH(TestDate) AS Month, COUNT(CASE WHEN FinalTestResult = 'Positive' THEN 1 END) AS PositiveTests, COUNT(*) AS TotalTests, CASE WHEN COUNT(*) <> 0 THEN COUNT(CASE WHEN FinalTestResult = 'Positive' THEN 1 END) * 100.0 / COUNT(*) ELSE NULL END AS PositivityRate FROM LineListTransHTS WHERE TestDate >= '2023-01-01' AND TestDate < '2023-07-01' GROUP BY County, MONTH(TestDate) ) AS PositivityRates GROUP BY County;
                     when asked for a specific county, Partner or facility , order in descending and filter to the top county/partner/facility, otherwise provide a linelist
 
-                    Use these real examples for complex queries:
+                    The text-to-SQL system that might be required to handle queries related to joining different tablea. Your system should be able to generate SQL queries to joins different tables and selects the variables needed.
+                    Example 1 :
+                    If a user asks, "among Counties that conducted more than 10,000 HIV tests in 2023, which county has the highest number of active patients on treatment?, your system should generate a SQL query like:
 
-                    Example 1:
-                    Question: calculate the positivity rate (percentage of positive tests) for each HIV risk category (Very High, High, Medium, Low) within each county
-                    SQLQuery: SELECT County, SUM(CASE WHEN HIVRiskCategory = 'Very High' THEN Positives ELSE 0 END) AS VeryHigh_Positives, SUM(CASE WHEN HIVRiskCategory = 'Very High' THEN TotalTests ELSE 0 END) AS VeryHigh_TotalTests, (SUM(CASE WHEN HIVRiskCategory = 'Very High' THEN Positives ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN HIVRiskCategory = 'Very High' THEN TotalTests ELSE 0 END), 0)) AS VeryHigh_PositivityRate, SUM(CASE WHEN HIVRiskCategory = 'High' THEN Positives ELSE 0 END) AS High_Positives, SUM(CASE WHEN HIVRiskCategory = 'High' THEN TotalTests ELSE 0 END) AS High_TotalTests, (SUM(CASE WHEN HIVRiskCategory = 'High' THEN Positives ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN HIVRiskCategory = 'High' THEN TotalTests ELSE 0 END), 0)) AS High_PositivityRate, SUM(CASE WHEN HIVRiskCategory = 'Moderate' THEN Positives ELSE 0 END) AS Moderate_Positives, SUM(CASE WHEN HIVRiskCategory = 'Moderate' THEN TotalTests ELSE 0 END) AS Moderate_TotalTests, (SUM(CASE WHEN HIVRiskCategory = 'Moderate' THEN Positives ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN HIVRiskCategory = 'Moderate' THEN TotalTests ELSE 0 END), 0)) AS Moderate_PositivityRate, SUM(CASE WHEN HIVRiskCategory = 'Low' THEN Positives ELSE 0 END) AS Low_Positives, SUM(CASE WHEN HIVRiskCategory = 'Low' THEN TotalTests ELSE 0 END) AS Low_TotalTests, (SUM(CASE WHEN HIVRiskCategory = 'Low' THEN Positives ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN HIVRiskCategory = 'Low' THEN TotalTests ELSE 0 END), 0)) AS Low_PositivityRate FROM ( SELECT LHTSE.HIVRiskCategory, LHTSE.County, COUNT(CASE WHEN LTFR.FinalTestResult = 'Positive' THEN LTFR.PatientPKHash END) AS Positives, COUNT(LHTSE.PatientPKHash) AS TotalTests FROM LinelistHTSEligibilty LHTSE JOIN LinelistTRANSHTS LTFR ON LHTSE.PatientPKHash = LTFR.PatientPKHash AND LHTSE.MFLCode = LTFR.MFLCode GROUP BY LHTSE.HIVRiskCategory, LHTSE.County ) AS Subquery GROUP BY County;
+                    SQLQUERY: SELECT County, COUNT(*) AS TotalTxCurr FROM Linelist_FACTART WHERE County IN (SELECT County FROM LineListTransHTS WHERE YEAR(TestDate) = 2023 GROUP BY County HAVING COUNT(*) > 10000) AND ISTxCurr = 1 GROUP BY County ORDER BY TotalTxCurr DESC;
 
-                    when asked for a specific period, please add the date filter
 
-                     Example 1:
-                    Question: What is the percentage of individuals with negative final HIV test results in December 2023 who were enrolled on PrEP, categorized by HIV risk category (Very High, High, Moderate), and grouped by county?
-                    SQLQuery: SELECT LTFR.County, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Very High' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END) AS VeryHigh_Total, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'High' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END) AS High_Total, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Moderate' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END) AS Moderate_Total, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Very High' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) AS VeryHigh_Negative_EnrolledOnPrep, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'High' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) AS High_Negative_EnrolledOnPrep, SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Moderate' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) AS Moderate_Negative_EnrolledOnPrep, (SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Very High' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Very High' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END), 0)) AS VeryHigh_Percentage_Negative_EnrolledOnPrep, (SUM(CASE WHEN LHTSE.HIVRiskCategory = 'High' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN LHTSE.HIVRiskCategory = 'High' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END), 0)) AS High_Percentage_Negative_EnrolledOnPrep, (SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Moderate' AND LTFR.FinalTestResult = 'Negative' AND LPA.PrepEnrollmentDate IS NOT NULL THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN LHTSE.HIVRiskCategory = 'Moderate' AND LTFR.FinalTestResult = 'Negative' THEN 1 ELSE 0 END), 0)) AS Moderate_Percentage_Negative_EnrolledOnPrep FROM (SELECT DISTINCT PatientPKHash, MFLCode, HIVRiskCategory FROM LinelistHTSEligibilty) AS LHTSE JOIN (SELECT DISTINCT PatientPKHash, MFLCode, FinalTestResult, County FROM LineListTransHTS WHERE TestDate >= '2023-10-01' AND TestDate < '2024-01-01') AS LTFR ON LHTSE.PatientPKHash = LTFR.PatientPKHash AND LHTSE.MFLCode = LTFR.MFLCode LEFT JOIN (SELECT DISTINCT PatientPKHash, MFLCode, PrepEnrollmentDate FROM LinelistPrepAssessments WHERE PrepEnrollmentDate >='2023-10-01') AS LPA ON LHTSE.PatientPKHash = LPA.PatientPKHash AND LHTSE.MFLCode = LPA.MFLCode GROUP BY LTFR.County;
 
-                    Adjust the date filtering and grouping variable according to the question asked, for example, if the question is about November 2023, change the TestDate and Prep enrollment date to November 2023, and similarly,if the question is group by Partner Change from County to PartnerName. Prep enrollment date should always be greater than or equal to test date
-                    Only use tables listed in the schema .
 
                 """
 
-        response_list, metadata_dict = nl_sql_retriever.retrieve_with_metadata(
-            custom_txt2sql_prompt + nl_query.question)
+        from llama_index.core.retrievers import NLSQLRetriever
+
+        # default retrieval (return_raw=True)
+        nl_sql_retriever = NLSQLRetriever(
+            sql_database,
+        )
+
+        # Retrieve objects dynamically with a maximum similarity_top_k value of 2
+        retriever = obj_index.as_retriever(similarity_top_k=2)
+        retrieved_objs = retriever.retrieve(question)
+        retrieved_objs
+
+        first_identified_table = retrieved_objs[0]
+        second_identified_table = retrieved_objs[1]
+
+        print("First Identified Table:", first_identified_table)
+        print("Second Identified Table:", second_identified_table)
+
+        custom_prompt_1 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement."
+                           f"Write a SQL query to answer the following question: {question}. "
+                           f"Using the table {first_identified_table}."
+                           "custom_prompt Please take note of the column names which are in quotes and their description."
+                           )
+
+        custom_prompt_2 = (f"You can refer to {custom_txt2sql_prompt} for examples and instructions on how to generate a SQL statement. "
+                           f"Write a SQL query to answer the following question: {question}, using the table {first_identified_table}. "
+                           "Please take note of the column names which are in quotes and their description. Do not use the two tables if you are not merging, be careful to differentiate which column names are in which table."
+                           f"If the question requires joining or merging, join with {second_identified_table} to retrieve the required variables."
+                           )
+
+        # Step 3: Determine if the question requires the use of the second table
+        def is_join_required(first_table_name):
+            return first_table_name in ["Linelist_FACTART", "LineListTransHTS", "LineListTransPNS", "LinelistHTSEligibilty"]
+
+        first_table_name = first_identified_table.table_name
+        print(first_table_name)
+
+        # Check if the join is required
+        if is_join_required(first_table_name):
+            custom_prompt = custom_prompt_2
+            print("custom prompt 2 was used")
+        else:
+            custom_prompt = custom_prompt_1
+            print("custom prompt 1 was used")
+
+        # Generate SQL query
+        response = nl_sql_retriever.retrieve_with_metadata(custom_prompt)
+        response_list, metadata_dict = response
+        print(metadata_dict["sql_query"])
 
         sql_query = metadata_dict["sql_query"]
         log.debug(f"Generated SQL query: {sql_query}")
-
         with SessionLocal() as session:
             result = session.execute(text(sql_query))
             rows = result.fetchall()
@@ -263,7 +297,6 @@ async def query_from_natural_language(nl_query: NaturalLanguageQuery):
         return {"sql_query": sql_query, "data": data}
     except Exception as e:
         log.error(f"Error processing query: {e}")
-        #raise HTTPException(status_code=500, detail=str(e))
         return {"sql_query": sql_query, "data": []}
 
 
