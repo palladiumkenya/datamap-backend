@@ -17,7 +17,7 @@ import logging
 
 from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
 from database import database
-from serializers.dictionary_mapper_serializer import indicator_selector_list_entity,indicator_list_entity
+from serializers.dictionary_mapper_serializer import indicator_selector_entity,indicator_selector_list_entity
 from serializers.access_credentials_serializer import access_credential_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity
 
@@ -205,11 +205,8 @@ async def base_variables(base_lookup: str):
         return e
 
 
-
-
-
-@router.get('/getDatabaseColumns')
-async def getDatabaseColumns():
+@router.get('/get_database_columns')
+async def get_database_columns():
     try:
         dbTablesAndColumns={}
 
@@ -232,9 +229,11 @@ async def getDatabaseColumns():
 
 
 
-@router.post('/add_mapped_variables')
-async def add_mapped_variables(variables:List[object]):
+@router.post('/add_mapped_variables/{baselookup}')
+async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
+        #delete existing configs for base repo
+        MappedVariables.objects(base_repository=baselookup).delete()
         for variableSet in variables:
             MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
@@ -257,10 +256,17 @@ async def add_mapped_variables(variables:List[object]):
 @router.get('/generate_config')
 async def generate_config(baseSchema:str):
     try:
-        config = MappedVariables.objects().all()
-        config = indicator_selector_list_entity(config)
+        cass_session = database.cassandra_session_factory()
+
+        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
+        config = cass_session.execute(query)
+
+        results = []
+        for row in config:
+            results.append(indicator_selector_entity(row))
+
         with open('configs/schemas/'+baseSchema +'.conf', 'w') as f:
-            f.write(str(config))
+            f.write(str(results))
 
         return 'success'
     except Exception as e:
@@ -274,6 +280,13 @@ async def generate_config(baseSchema:str):
 @router.get('/import_config')
 async def import_config(baseSchema:str):
     try:
+        # delete existing configs for base repo
+        cass_session = database.cassandra_session_factory()
+
+        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
+        existingVariables = cass_session.execute(query)
+        for var in existingVariables:
+            MappedVariables.objects(id=var.id).delete()
 
         f = open('configs/schemas/'+baseSchema +'.conf', 'r')
 
@@ -282,7 +295,7 @@ async def import_config(baseSchema:str):
         for conf in configs:
             MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
-                                      base_variable_mapped_to=conf["base_variable_mapped_to"])
+                                      base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
 
         f.close()
         log.info("========= Successfully imported config ==========")

@@ -2,7 +2,7 @@ import uuid
 
 from cassandra.cqlengine import columns
 from cassandra.cqlengine.models import Model
-
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 
@@ -38,7 +38,7 @@ class MappedVariables(Model):
     base_variable_mapped_to = columns.Text(required=True,index=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
     updated_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
-    source_system_id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    source_system_id = columns.UUID(default=uuid.uuid1)
 
 
     def save(self):
