@@ -2,7 +2,7 @@ import uuid
 from collections import defaultdict
 from uuid import UUID
 
-from cassandra.cqlengine.management import sync_table
+from cassandra.cqlengine.management import sync_table, drop_table
 from cassandra.cqlengine.query import DoesNotExist
 from cassandra.cqlengine import columns, models
 
@@ -95,7 +95,8 @@ async def add_data_dictionary_terms(
         expected_values = row['expected_values'] or None
 
         # Check if the term already exists
-        term_obj = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary, term=term).allow_filtering().first()
+        term_obj = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary,
+                                                         term=term).allow_filtering().first()
 
         if term_obj:
             # If the term exists, update it
@@ -161,7 +162,6 @@ def delete_data_dictionary_term_usl(term_id: str):
 # Datamap dictionary management apis
 @router.get("/data_dictionary_terms")
 async def data_dictionary_terms():
-
     terms = DataDictionaryTerms.objects.all()
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
@@ -230,7 +230,8 @@ def sync_terms(dict_id_map: dict):
     for usl_term in usl_terms:
         dictionary_id = dict_id_map.get(usl_term.dictionary)
         if dictionary_id:
-            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term.dictionary, term=usl_term.term).allow_filtering().first()
+            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term.dictionary,
+                                                                 term=usl_term.term).allow_filtering().first()
             if not existing_term:
                 new_term = DataDictionaryTerms(
                     dictionary=usl_term.dictionary,
@@ -308,6 +309,10 @@ def create_tables():
         # Create dynamic table class and synchronize with Cassandra
         dynamic_table = type(table_name, (models.Model,), tbl_columns)
         dynamic_table.__keyspace__ = database.KEYSPACE
+        try:
+            drop_table(dynamic_table)
+        except:
+            pass
         sync_table(dynamic_table)
 
 
