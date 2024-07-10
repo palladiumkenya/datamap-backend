@@ -198,7 +198,7 @@ async def base_variables(base_lookup: str):
         dictionary = cass_session.execute(query)
         base_variables = []
         for i in dictionary:
-            base_variables.append(i['term'])
+            base_variables.append({"term":i['term'], "datatype":i['data_type']})
         return base_variables
     except Exception as e:
         log.error('System ran into an error fetching base_variables --->', e)
@@ -213,12 +213,21 @@ async def get_database_columns():
         table_names = metadata.tables.keys()
 
         for table_name in table_names:
+            # Load the table schema from MetaData
+            table = Table(table_name, metadata, autoload_with=engine)
 
-            columns = inspector.get_columns(table_name)
-
+            # Print column names and types
             getcolumnnames = []
-            for column in columns:
-                getcolumnnames.append(column['name'])
+            for column in table.columns:
+                getcolumnnames.append({"name": column.name, "type": str(column.type)})
+            # columns = inspector.get_columns(table_name)
+
+            # getcolumnnames = []
+            # for column in columns:
+            #
+            #     datatype=column['type']
+            #     getcolumnnames.append({"Column": {column.name}, "Type": {column.type}})
+            #     # getcolumnnames.append({"name":column['name'], "type":column['type']})
 
             dbTablesAndColumns[table_name] = getcolumnnames
         # credential = credential
