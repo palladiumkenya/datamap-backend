@@ -4,7 +4,11 @@ from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
+import uuid
+from cassandra.query import BatchStatement
+from cassandra import ConsistencyLevel
 
+from datetime import datetime
 import json
 from fastapi import APIRouter
 from typing import List
@@ -342,7 +346,7 @@ def generate_query(baselookup:str):
         columns = ", ".join(mapped_columns)
         joins = ", ".join(mapped_joins)
 
-        query = f"SELECT uuid() as id, {columns} from etl_patient_demographics {joins.replace(',','')} limit 100"
+        query = f"SELECT {columns} from etl_patient_demographics {joins.replace(',','')} limit 10"
 
         log.info("========= Successfully generated query ==========")
 
@@ -352,12 +356,34 @@ def generate_query(baselookup:str):
 
         return e
 
+def convert_none_to_null(data):
+    if isinstance(data, dict):
+        return {k: convert_none_to_null(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_none_to_null(item) for item in data]
+    elif data is None:
+        return None # This will be converted to null in JSON
+    else:
+        return data
+
+def convert_datetime_to_iso(data):
+    if isinstance(data, dict):
+        return {k: convert_datetime_to_iso(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_datetime_to_iso(item) for item in data]
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    else:
+        return data
+
 
 @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
     try:
+
         query = text(generate_query(baselookup))
-        # query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv ")
+
+        cass_session = database.cassandra_session_factory()
 
         with db_session as session:
             result = session.execute(query)
@@ -365,7 +391,30 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            print("baseRepoLoaded ->",baseRepoLoaded)
+            # values =', '.join(map(str, [tuple(data.values()) for data in json.dumps(baseRepoLoaded, default=datetime_serializer)]))
+            processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            # values = ', '.join(map(str, [tuple('NULL' if value is None else f"'{value}'" for value  in data.values()) for data in processed_results]))
+
+            # rows = []
+            # Create a batch statement
+            batch = BatchStatement()
+            cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
+            for data in processed_results:
+                valuedata = []
+                valuedata.append('uuid()')
+                valuedata.extend(['NULL' if value is None else f"'{value}'" for value in data.values()])
+                values = ', '.join(map(str, tuple(valuedata)))
+                # rows.append(f"({values})")
+
+                # query = "INSERT INTO %s (client_repository_id,%s) VALUES %s" % (baselookup, ", ".join(tuple(baseRepoLoaded[0].keys())), ', '.join(rows))
+                query = "INSERT INTO %s (client_repository_id,%s) VALUES (%s);" % (baselookup, ", ".join(tuple(baseRepoLoaded[0].keys())), values)
+
+                # Add multiple insert statements to the batch
+                batch.add(query)
+            cass_session.execute(batch)
+
+            # end batch
+            cass_session.cluster.shutdown()
             return baseRepoLoaded
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
