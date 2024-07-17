@@ -159,6 +159,17 @@ def delete_data_dictionary_term_usl(term_id: str):
     return {"message": "Data dictionary term deleted successfully"}
 
 
+@router.delete("/delete_data_dictionary_usl/{dict_id}")
+def delete_data_dictionary_usl(dict_id: str):
+    DataDictionariesUSL.objects(id=UUID(dict_id)).delete()
+
+    terms = DataDictionaryTermsUSL.objects(dictionary_id=dict_id)
+    for term in terms:
+        term.delete()
+
+    return {"message": "Data dictionary term deleted successfully"}
+
+
 # Datamap dictionary management apis
 @router.get("/data_dictionary_terms")
 async def data_dictionary_terms():
