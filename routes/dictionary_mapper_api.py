@@ -57,7 +57,7 @@ def createEngine():
 
     except SQLAlchemyError as e:
         # Log the error or handle it as needed
-        raise HTTPException(status_code=500, detail="Database connection error")
+        raise HTTPException(status_code=500, detail="Database connection error"+str(e))
 
 
 def get_db():
