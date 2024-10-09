@@ -320,7 +320,7 @@ async def import_config(baseSchema:str):
         return e
 
 
-@router.get('/generate-query/{baselookup}')
+# @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup:str):
     try:
 
