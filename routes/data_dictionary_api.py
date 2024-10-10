@@ -2,7 +2,7 @@ import uuid
 from collections import defaultdict
 from uuid import UUID
 
-from cassandra.cqlengine.management import sync_table
+from cassandra.cqlengine.management import sync_table, drop_table
 from cassandra.cqlengine.query import DoesNotExist
 from cassandra.cqlengine import columns, models
 
@@ -95,7 +95,8 @@ async def add_data_dictionary_terms(
         expected_values = row['expected_values'] or None
 
         # Check if the term already exists
-        term_obj = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary, term=term).allow_filtering().first()
+        term_obj = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary,
+                                                         term=term).allow_filtering().first()
 
         if term_obj:
             # If the term exists, update it
@@ -161,7 +162,6 @@ def delete_data_dictionary_term_usl(term_id: str):
 # Datamap dictionary management apis
 @router.get("/data_dictionary_terms")
 async def data_dictionary_terms():
-
     terms = DataDictionaryTerms.objects.all()
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
@@ -205,8 +205,10 @@ async def data_dictionaries():
 def sync_dictionaries(datasource_id: str) -> dict:
     usl_dicts = DataDictionariesUSL.objects().all()
     dict_id_map = {}
+    active_dicts = set()
 
     for usl_dict in usl_dicts:
+        active_dicts.add(usl_dict.name)
         existing_dict = DataDictionaries.objects().filter(name=usl_dict.name).allow_filtering().first()
         if not existing_dict:
             new_dict = DataDictionaries(
@@ -220,17 +222,25 @@ def sync_dictionaries(datasource_id: str) -> dict:
             existing_dict.is_published = usl_dict.is_published
             existing_dict.save()
             dict_id_map[usl_dict.name] = existing_dict.id
+    # Deactivate dictionaries that are no longer present in usl_dicts
+    existing_dicts = DataDictionaries.objects().filter(datasource_id=datasource_id).allow_filtering()
+    for existing_dict in existing_dicts:
+        if existing_dict.name not in active_dicts:
+            DataDictionaries.objects(id=existing_dict.id).first().delete()
 
     return dict_id_map
 
 
 def sync_terms(dict_id_map: dict):
     usl_terms = DataDictionaryTermsUSL.objects().all()
+    active_terms = set()
 
     for usl_term in usl_terms:
         dictionary_id = dict_id_map.get(usl_term.dictionary)
         if dictionary_id:
-            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term.dictionary, term=usl_term.term).allow_filtering().first()
+            active_terms.add((usl_term.dictionary, usl_term.term))
+            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term.dictionary,
+                                                                 term=usl_term.term).allow_filtering().first()
             if not existing_term:
                 new_term = DataDictionaryTerms(
                     dictionary=usl_term.dictionary,
@@ -251,6 +261,11 @@ def sync_terms(dict_id_map: dict):
                 existing_term.is_active = usl_term.is_active
                 existing_term.save()
 
+    # Deactivate terms that are no longer present in usl_terms
+    existing_terms = DataDictionaryTerms.objects().filter(dictionary_id__in=list(dict_id_map.values())).allow_filtering()
+    for existing_term in existing_terms:
+        if (existing_term.dictionary, existing_term.term) not in active_terms:
+            DataDictionaryTerms.objects(id=existing_term.id).first().delete()
     return {"message": "Data dictionary terms synced successfully"}
 
 
@@ -308,6 +323,10 @@ def create_tables():
         # Create dynamic table class and synchronize with Cassandra
         dynamic_table = type(table_name, (models.Model,), tbl_columns)
         dynamic_table.__keyspace__ = database.KEYSPACE
+        try:
+            drop_table(dynamic_table)
+        except:
+            pass
         sync_table(dynamic_table)
 
 
