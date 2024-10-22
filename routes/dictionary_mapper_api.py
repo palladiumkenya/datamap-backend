@@ -7,8 +7,8 @@ from sqlalchemy.orm import sessionmaker, Session
 import uuid
 from cassandra.query import BatchStatement
 from cassandra import ConsistencyLevel
-
-from datetime import datetime
+import datetime
+from datetime import date
 import json
 from fastapi import APIRouter
 from typing import List
@@ -298,14 +298,19 @@ async def import_config(baseSchema:str):
 
         query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
         existingVariables = cass_session.execute(query)
+        print('existingVariables ---> ',existingVariables)
         for var in existingVariables:
-            MappedVariables.objects(id=var.id).delete()
+            print('delete before ---> ', var, var["id"])
+            MappedVariables.objects(id=var["id"]).delete()
+            print('delete after ---> ', var)
+
 
         f = open('configs/schemas/'+baseSchema +'.conf', 'r')
 
         configImportStatements = f.read()
         configs = json.loads(configImportStatements.replace("'", '"'))
         for conf in configs:
+            print("print conf imported -->", conf)
             MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
                                       base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
@@ -329,8 +334,10 @@ def generate_query(baselookup:str):
         query = "SELECT * FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
         configs = cass_session.execute(query)
 
-        query2 = "SELECT * FROM mapped_variables WHERE base_repository='%s' and base_variable_mapped_to='PrimaryTableId' ALLOW FILTERING;" % (baselookup)
-        primaryTable = cass_session.execute(query2)
+        primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
+        primaryTableDetails = indicator_selector_entity(primaryTable)
+
+        print("primaryTableDetails ---->", primaryTableDetails)
 
         mapped_columns = []
         mapped_joins = []
@@ -339,17 +346,18 @@ def generate_query(baselookup:str):
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
                 mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
                 if all(conf["tablename"]+"." not in s for s in mapped_joins):
-
-                    mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTable[0]["tablename"].strip() + "." + primaryTable[0]["columnname"].strip() +
-                    " = " + conf["tablename"].strip() + "." + conf["columnname"].strip())
+                    if conf["tablename"] != primaryTableDetails['tablename']:
+                        mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
+                        " = " + conf["tablename"].strip() + "." + conf["join_by"].strip())
 
         columns = ", ".join(mapped_columns)
         joins = ", ".join(mapped_joins)
 
-        query = f"SELECT {columns} from etl_patient_demographics {joins.replace(',','')} limit 10"
+
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 10"
 
         log.info("========= Successfully generated query ==========")
-
+        print("========= Successfully generated query result==========", query)
         return query
     except Exception as e:
         log.error("Error importing config ==> %s", str(e))
@@ -371,7 +379,7 @@ def convert_datetime_to_iso(data):
         return {k: convert_datetime_to_iso(v) for k, v in data.items()}
     elif isinstance(data, list):
         return [convert_datetime_to_iso(item) for item in data]
-    elif isinstance(data, datetime):
+    elif isinstance(data, datetime.date):
         return data.isoformat()
     else:
         return data
@@ -387,31 +395,44 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
         with db_session as session:
             result = session.execute(query)
+            print("result --->", result)
 
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+            print("baseRepoLoaded --->", baseRepoLoaded)
 
-            # values =', '.join(map(str, [tuple(data.values()) for data in json.dumps(baseRepoLoaded, default=datetime_serializer)]))
             processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
-            # values = ', '.join(map(str, [tuple('NULL' if value is None else f"'{value}'" for value  in data.values()) for data in processed_results]))
-
+            print("processed_results --->", processed_results)
             # rows = []
             # Create a batch statement
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
-                valuedata = []
-                valuedata.append('uuid()')
-                valuedata.extend(['NULL' if value is None else f"'{value}'" for value in data.values()])
-                values = ', '.join(map(str, tuple(valuedata)))
-                # rows.append(f"({values})")
 
-                # query = "INSERT INTO %s (client_repository_id,%s) VALUES %s" % (baselookup, ", ".join(tuple(baseRepoLoaded[0].keys())), ', '.join(rows))
-                query = "INSERT INTO %s (client_repository_id,%s) VALUES (%s);" % (baselookup, ", ".join(tuple(baseRepoLoaded[0].keys())), values)
+                # rowvalues = data.values()
+                # valuedata.extend(['NULL' if value is None else f"'{value}'" for value in data.values()])
 
+                rowvalues = data.values()
+
+                quoted_values = [
+                    'NULL' if value is None
+                    else f"'{value}'" if isinstance(value, str)
+                    else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+                    else str(value)
+                    for value in rowvalues
+                ]
+                print('quoted_values -->',quoted_values)
+
+                query = f"""
+                           INSERT INTO {baselookup} (client_repository_id, {", ".join(tuple(data.keys()))})
+                           VALUES (uuid(), {', '.join(quoted_values)})
+                       """
+                print('insert query -->',query)
+                # insert_resords = cass_session.prepare(query)
+                cass_session.execute(query)
                 # Add multiple insert statements to the batch
-                batch.add(query)
-            cass_session.execute(batch)
+                # batch.add(query)
+            # cass_session.execute(batch)
 
             # end batch
             cass_session.cluster.shutdown()
