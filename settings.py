@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     CASSANDRA_USER: str
     CASSANDRA_PASSWORD: str
 
+    STAGING_API: str
+
     # REPORTING_DB: str
     # REPORTING_USER: str
     # REPORTING_PASSWORD: str
