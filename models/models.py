@@ -101,13 +101,16 @@ class DataDictionaryTerms(Model):
         super().save()
 
 
-class DataDictionariesUSL(Model):
+class SiteConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionaries_usl'
+    __table_name__ = 'site_configuration'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    name = columns.Text(required=True, index=True)
-    is_published = columns.Boolean(default=False)
+    site_name = columns.Text(required=True, index=True)
+    site_id = columns.UUID(required=True, index=True)
+    primary_system = columns.Text(required=True)
+    other_systems = columns.Text(required=False)
+
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
@@ -117,19 +120,51 @@ class DataDictionariesUSL(Model):
         super().save()
 
 
-class DataDictionaryTermsUSL(Model):
+class USLConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionary_terms_usl'
+    __table_name__ = 'usl_configuration'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    dictionary = columns.Text(required=True, index=True)
-    dictionary_id = columns.Text(required=True, index=True)
-    term = columns.Text(required=True, index=True)
-    data_type = columns.Text(required=True)
-    is_required = columns.Boolean(default=False)
-    term_description = columns.Text(required=False)
-    expected_values = columns.Text(required=False)
-    is_active = columns.Boolean(required=True, default=True)
+    usl_host = columns.Text(required=True)
+    usl_key = columns.Text(required=True)
+
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class SchedulesConfig(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'schedules_configuration'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    schedule_name = columns.Text(required=True)
+    cron_expression = columns.Text(required=True)
+    last_run = columns.DateTime(required=False)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class SchedulesLog(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'schedules_log'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    schedule_uuid = columns.UUID(required=True)
+    log_type = columns.Text(required=True)
+    log_message = columns.Text(required=True)
+    start_time = columns.DateTime(required=False)
+    end_time = columns.DateTime(required=False)
+
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
