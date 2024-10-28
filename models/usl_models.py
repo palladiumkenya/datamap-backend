@@ -12,8 +12,7 @@ class DataDictionariesUSL(Model):
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     name = columns.Text(required=True, index=True)
-    version_number = columns.Integer(primary_key=True)  # dictionary version
-    parent_dictionary_id = columns.UUID(required=False, index=True)  # Link to previous version
+    version_number = columns.Integer(required=True, default=0)  # dictionary version
     is_published = columns.Boolean(default=False)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
@@ -45,3 +44,20 @@ class DataDictionaryTermsUSL(Model):
         self.updated_at = datetime.utcnow()
         super().save()
 
+
+class DictionaryChangeLog(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'dictionary_change_log'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    dictionary_id = columns.UUID(required=True, index=True)
+    term_id = columns.UUID(required=True)
+    operation = columns.Text(required=True)  # ADD, EDIT, DELETE
+    old_value = columns.Text(required=False)  # Store JSON string of old term
+    new_value = columns.Text(required=False)  # Store JSON string of new term
+    version_number = columns.Integer(required=True)
+    changed_at = columns.DateTime(required=True, default=datetime.utcnow())
+
+    def save(self):
+        self.changed_at = datetime.utcnow()
+        super().save()

@@ -4,7 +4,7 @@ from cassandra.cqlengine.management import sync_table
 from routes import access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api
 from models.models import (AccessCredentials, IndicatorVariables, DataDictionaries, DataDictionaryTerms,
                            USLConfig, SchedulesConfig, SiteConfig, SchedulesLog)
-from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL
+from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
 
 
 app = FastAPI()
@@ -30,6 +30,7 @@ async def startup_event():
     sync_table(DataDictionaryTerms)
     sync_table(DataDictionariesUSL)
     sync_table(DataDictionaryTermsUSL)
+    sync_table(DictionaryChangeLog)
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')

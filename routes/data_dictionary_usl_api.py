@@ -1,4 +1,6 @@
+import json
 from collections import defaultdict
+from datetime import datetime
 from uuid import UUID
 
 from cassandra.cqlengine.query import DoesNotExist
@@ -6,8 +8,9 @@ from cassandra.cqlengine.query import DoesNotExist
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL
-from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity
+from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
+from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
+    data_dictionary_change_log_entity, data_dictionary_term_entity
 
 router = APIRouter()
 
@@ -82,30 +85,21 @@ class SaveDataDictionary(BaseModel):
 async def add_data_dictionary_terms(
         data: SaveDataDictionary,
 ):
-    data_dictionary = (DataDictionariesUSL
-                       .objects
-                       .filter(id=data.dictionary)
-                       .allow_filtering()
-                       .all())
+    data_dictionary = DataDictionariesUSL.objects(id=data.dictionary).first()
     if not data_dictionary:
         raise HTTPException(status_code=404, detail="Dictionary not found")
-    latest_dictionary = max(data_dictionary, key=lambda dictionary: dictionary.version_number)
+    # latest_dictionary = max(data_dictionary, key=lambda dictionary: dictionary.version_number)
     terms_count = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary).count()
 
-    print(terms_count)
-    if terms_count == 0:
-        add_dict_terms(data, latest_dictionary)
-    else:
-        new_data_dictionary = DataDictionariesUSL(
-            name=latest_dictionary.name,
-            version_number=(latest_dictionary.version_number +1)
-        )
-        new_data_dictionary.save()
-        add_dict_terms(data, new_data_dictionary)
+    if terms_count != 0:
+        data_dictionary.update(version_number=data_dictionary.version_number + 1)
+        data_dictionary.save()
+    add_dict_terms(data, data_dictionary)
     return {"message": "Data dictionary terms uploaded successfully"}
 
 
 def add_dict_terms(data, data_dictionary):
+    """Adds terms to data dictionary and logs changes"""
     for row in data.data:
         term = row['column']
         data_type = row['data_type']
@@ -114,31 +108,48 @@ def add_dict_terms(data, data_dictionary):
         expected_values = row['expected_values'] or None
 
         # Check if the term already exists
-        # term_obj = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary,
-        #                                                  term=term).allow_filtering().first()
-        #
-        # if term_obj:
-        #     # If the term exists, update it
-        #     term_obj.data_type = data_type
-        #     term_obj.is_required = is_required
-        #     term_obj.term_description = term_description
-        #     term_obj.expected_values = expected_values
-        #     term_obj.save()
-        # else:
-        # If the term doesn't exist, create a new one
-        term_obj = DataDictionaryTermsUSL(
-            dictionary_id=str(data_dictionary.id),
-            dictionary=data_dictionary.name,
-            term=term,
-            data_type=data_type,
-            is_required=is_required,
-            term_description=term_description,
-            expected_values=expected_values
-        )
-        term_obj.save()
+        existing_term = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary, term=term).allow_filtering().first()
 
-        # Save the data dictionary terms to the database
-        term_obj.save()
+        if existing_term:
+            log_dictionary_change(
+                dictionary_id=data_dictionary.id,
+                term_id=existing_term.id,
+                operation="EDIT",
+                old_value=data_dictionary_term_entity(existing_term),
+                new_value={
+                    "data_type": data_type,
+                    "is_required": is_required,
+                    "expected_values": expected_values,
+                    "term_description": term_description
+                },
+                version_number=data_dictionary.version_number
+            )
+            # If the term exists, update it
+            existing_term.data_type = data_type
+            existing_term.is_required = is_required
+            existing_term.term_description = term_description
+            existing_term.expected_values = expected_values
+            existing_term.save()
+        else:
+            # If the term doesn't exist, create a new one
+            new_term = DataDictionaryTermsUSL(
+                dictionary_id=str(data_dictionary.id),
+                dictionary=data_dictionary.name,
+                term=term,
+                data_type=data_type,
+                is_required=is_required,
+                term_description=term_description,
+                expected_values=expected_values
+            )
+            new_term.save()
+
+            log_dictionary_change(
+                dictionary_id=data_dictionary.id,
+                term_id=new_term.id,
+                operation="ADD",
+                new_value=data_dictionary_term_entity(new_term),
+                version_number=data_dictionary.version_number
+            )
 
 
 class DataDictionaryTermsUSLUpdate(BaseModel):
@@ -151,10 +162,15 @@ class DataDictionaryTermsUSLUpdate(BaseModel):
 
 @router.put("/update_data_dictionary_terms_usl/{term_id}")
 def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUpdate):
+    # Fetch the term
     term = DataDictionaryTermsUSL.objects(id=UUID(term_id)).first()
     if not term:
         raise HTTPException(status_code=404, detail="Data dictionary term not found")
 
+    # Capture for logging
+    old_term = term
+
+    # update term attributes
     if data.data_type is not None:
         term.data_type = data.data_type
     if data.is_required is not None:
@@ -164,6 +180,23 @@ def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUp
     if data.expected_values is not None:
         term.expected_values = data.expected_values
     term.save()
+
+    # Fetch dict for version update
+    dictionary = DataDictionariesUSL.objects(id=UUID(term.dictionary_id)).first()
+    if dictionary:
+        dictionary.version_number += 1
+        dictionary.save()
+
+        # log change
+        log_dictionary_change(
+            dictionary_id=dictionary.id,
+            term_id=term.id,
+            operation="EDIT",
+            old_value=data_dictionary_term_entity(old_term),
+            new_value=data_dictionary_term_entity(term),
+            version_number=dictionary.version_number
+        )
+
     return term
 
 
@@ -173,5 +206,59 @@ def delete_data_dictionary_term_usl(term_id: str):
     if not term:
         raise HTTPException(status_code=404, detail="Data dictionary term not found")
 
+    dictionary = DataDictionariesUSL.objects(id=UUID(term.dictionary_id)).first()
+    if dictionary:
+        dictionary.version_number += 1
+        dictionary.save()
+
+        # log change
+        log_dictionary_change(
+            dictionary_id=dictionary.id,
+            term_id=term.id,
+            operation="DELETE",
+            old_value=data_dictionary_term_entity(term),
+            version_number=dictionary.version_number
+        )
+
     term.delete()
     return {"message": "Data dictionary term deleted successfully"}
+
+
+def log_dictionary_change(dictionary_id, term_id, operation, old_value=None, new_value=None, version_number=None):
+
+    change_log = DictionaryChangeLog(
+        dictionary_id=dictionary_id,
+        term_id=term_id,
+        operation=operation,
+        old_value=json.dumps(old_value, default=json_serializer) if old_value else None,
+        new_value=json.dumps(new_value, default=json_serializer) if new_value else None,
+        version_number=version_number,
+    )
+    change_log.save()
+
+
+def json_serializer(obj):
+    """JSON serializer for objects not serializable by default"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj)} not serializable")
+
+
+@router.get("/get_change_logs/{dictionary_id}")
+async def get_change_logs(dictionary_id):
+    try:
+        logs = DictionaryChangeLog.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
+        if not logs:
+            return []
+
+        formatted_logs = {}
+        for log in logs:
+            version = f'Version {log.version_number}'
+            if version not in formatted_logs:
+                formatted_logs[version] = []
+            formatted_logs[version].append(data_dictionary_change_log_entity(log))
+        return formatted_logs
+    except DoesNotExist:
+        raise HTTPException(status_code=404, detail="Dictionary does not exist")
