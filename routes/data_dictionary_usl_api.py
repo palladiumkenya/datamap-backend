@@ -1,4 +1,5 @@
 import json
+import exrex
 from collections import defaultdict
 from datetime import datetime
 from uuid import UUID
@@ -22,11 +23,22 @@ async def data_dictionary_terms_usl():
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
     for term in response_terms:
+        term["values_examples"] = irregular_express(term["expected_values"])
         grouped_terms[term['dictionary']].append(term)
     # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
     formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
                        grouped_terms.items()]
     return formatted_terms
+
+
+def irregular_express(pattern):
+    """
+    Converts a regular expression into a list of possible matches
+    :param pattern: Regular expression to check
+    :return: range_exp: List of possible matches
+    """
+    range_exp = exrex.getone(pattern, limit=3)
+    return range_exp
 
 
 @router.get("/data_dictionaries_usl")

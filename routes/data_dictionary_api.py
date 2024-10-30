@@ -72,6 +72,7 @@ def sync_dictionaries(datasource_id: str) -> dict:
             new_dict = DataDictionaries(
                 name=usl_dict.name,
                 is_published=usl_dict.is_published,
+                version_number=usl_dict.version_number,
                 datasource_id=datasource_id
             )
             new_dict.save()
