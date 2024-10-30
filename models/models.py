@@ -173,3 +173,19 @@ class SchedulesLog(Model):
     def save(self):
         self.updated_at = datetime.utcnow()
         super().save()
+
+
+class UniversalDictionaryConfig(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'universal_dictionary_config'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    universal_dictionary_url = columns.Text(required=True)
+    universal_dictionary_jwt = columns.Text(required=True)
+    universal_dictionary_update_frequency = columns.Text(required=False)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
