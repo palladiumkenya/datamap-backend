@@ -30,14 +30,14 @@ class IndicatorVariables(Model):
     __table_name__ = 'indicator_variables'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    tablename = columns.Text(required=True,index=True)
-    columnname = columns.Text(required=True,index=True)
-    datatype = columns.Text(required=True,index=True)
+    tablename = columns.Text(required=True, index=True)
+    columnname = columns.Text(required=True, index=True)
+    datatype = columns.Text(required=True, index=True)
     # indicator = columns.Text(required=True,index=True)
-    base_repository = columns.Text(required=True,index=True)
-    base_variable_mapped_to = columns.Text(required=True,index=True)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
+    base_repository = columns.Text(required=True, index=True)
+    base_variable_mapped_to = columns.Text(required=True, index=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow(), index=True)
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow(), index=True)
 
     def save(self):
         self.updated_at = datetime.utcnow()
@@ -69,6 +69,7 @@ class DataDictionaries(Model):
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     datasource_id = columns.UUID(required=True)
     name = columns.Text(required=True, index=True)
+    version_number = columns.Integer(required=True, default=0)
     is_published = columns.Boolean(default=False)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
@@ -101,13 +102,16 @@ class DataDictionaryTerms(Model):
         super().save()
 
 
-class DataDictionariesUSL(Model):
+class SiteConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionaries_usl'
+    __table_name__ = 'site_configuration'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    name = columns.Text(required=True, index=True)
-    is_published = columns.Boolean(default=False)
+    site_name = columns.Text(required=True, index=True)
+    site_id = columns.UUID(required=True, index=True)
+    primary_system = columns.Text(required=True)
+    other_systems = columns.Text(required=False)
+
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
@@ -117,19 +121,68 @@ class DataDictionariesUSL(Model):
         super().save()
 
 
-class DataDictionaryTermsUSL(Model):
+class USLConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionary_terms_usl'
+    __table_name__ = 'usl_configuration'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    dictionary = columns.Text(required=True, index=True)
-    dictionary_id = columns.Text(required=True, index=True)
-    term = columns.Text(required=True, index=True)
-    data_type = columns.Text(required=True)
-    is_required = columns.Boolean(default=False)
-    term_description = columns.Text(required=False)
-    expected_values = columns.Text(required=False)
-    is_active = columns.Boolean(required=True, default=True)
+    usl_host = columns.Text(required=True)
+    usl_key = columns.Text(required=True)
+
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class SchedulesConfig(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'schedules_configuration'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    schedule_name = columns.Text(required=True)
+    cron_expression = columns.Text(required=True)
+    last_run = columns.DateTime(required=False)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class SchedulesLog(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'schedules_log'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    schedule_uuid = columns.UUID(required=True)
+    log_type = columns.Text(required=True)
+    log_message = columns.Text(required=True)
+    start_time = columns.DateTime(required=False)
+    end_time = columns.DateTime(required=False)
+
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class UniversalDictionaryConfig(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'universal_dictionary_config'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    universal_dictionary_url = columns.Text(required=True)
+    universal_dictionary_jwt = columns.Text(required=True)
+    universal_dictionary_update_frequency = columns.Text(required=False)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
