@@ -11,8 +11,11 @@ router = APIRouter()
 def get_dictionary_config():
     try:
         configs = UniversalDictionaryConfig.objects.first()
-        response_config = universal_dictionary_config_serializer_entity(configs)
-        return response_config
+        if configs is not None:
+            response_config = universal_dictionary_config_serializer_entity(configs)
+        else:
+            response_config = None
+        return {"data": response_config}
     except UniversalDictionaryConfig.DoesNotExist:
         raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
@@ -28,13 +31,13 @@ class SaveUniversalDataDictionary(BaseModel):
 @router.post("/add_dictionary_config")
 def add_dictionary_config(data: SaveUniversalDataDictionary):
     try:
-        data_dictionary = UniversalDictionaryConfig(
+        conf = UniversalDictionaryConfig(
             universal_dictionary_url=data.universal_dictionary_url,
             universal_dictionary_jwt=data.universal_dictionary_jwt,
             universal_dictionary_update_frequency=data.universal_dictionary_update_frequency
         )
-        data_dictionary.save()
-        return {"status": "success", "data": data_dictionary}
+        conf.save()
+        return {"status": "success", "data": conf}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

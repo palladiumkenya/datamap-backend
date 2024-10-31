@@ -189,3 +189,4 @@ class UniversalDictionaryConfig(Model):
 
     def save(self):
         self.updated_at = datetime.utcnow()
+        super().save()
