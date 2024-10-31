@@ -23,7 +23,7 @@ async def data_dictionary_terms_usl():
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
     for term in response_terms:
-        term["values_examples"] = irregular_express(term["expected_values"])
+        # term["values_examples"] = irregular_express(term["expected_values"])
         grouped_terms[term['dictionary']].append(term)
     # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
     formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
@@ -37,7 +37,7 @@ def irregular_express(pattern):
     :param pattern: Regular expression to check
     :return: range_exp: List of possible matches
     """
-    range_exp = exrex.getone(pattern, limit=3)
+    range_exp = exrex.getone(pattern)
     return range_exp
 
 
