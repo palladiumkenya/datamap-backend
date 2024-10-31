@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
-    data_dictionary_change_log_entity, data_dictionary_term_entity
+    data_dictionary_change_log_entity, data_dictionary_term_entity, data_dictionary_usl_entity
 
 router = APIRouter()
 
@@ -274,3 +274,28 @@ async def get_change_logs(dictionary_id):
         return formatted_logs
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Dictionary does not exist")
+
+
+@router.get("/get_universal_dictionaries")
+def get_universal_dictionaries():
+    try:
+        universal_dictionaries = DataDictionariesUSL.objects.filter(is_published=True).allow_filtering().all()
+
+        grouped_terms = defaultdict(list)
+        formatted_terms = []
+
+        terms = DataDictionaryTermsUSL.objects.all()
+
+        response_terms = data_dictionary_terms_list_entity(terms)
+        for term in response_terms:
+            grouped_terms[term['dictionary']].append(term)
+
+        # Format response for each universal dictionary
+        for universal_dictionary in universal_dictionaries:
+            universal_dictionary_data = data_dictionary_usl_entity(universal_dictionary)
+            dict_terms = grouped_terms.get(universal_dictionary_data["name"], [])
+
+            formatted_terms.append({"dictionary": universal_dictionary_data, "dictionary_terms": dict_terms})
+        return {"data": formatted_terms, "detail": "Connection successful"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
