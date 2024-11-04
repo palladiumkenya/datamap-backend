@@ -48,7 +48,7 @@ def data_dictionary_change_log_entity(change_log) -> dict:
         "term_id": str(change_log["term_id"]),
         "old_value": str(change_log["old_value"]),
         "new_value": str(change_log["new_value"]),
-        "created_at": change_log["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+        "changed_at": change_log["changed_at"].strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
