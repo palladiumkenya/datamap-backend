@@ -1,3 +1,4 @@
+import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -74,7 +75,6 @@ class UpdateUniversalDataDictionary(BaseModel):
     universal_dictionary_update_frequency: str = Field(..., description="")
 
 
-@router.put("/update_dictionary_config")
 # @router.put("/update_dictionary_config")
 # def update_dictionary_config(data: UpdateUniversalDataDictionary):
 #     try:

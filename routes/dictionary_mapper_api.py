@@ -66,7 +66,7 @@ def get_db():
     finally:
         db_session.close()
 
-@router.on_event("startup")
+# @router.on_event("startup")
 async def startup_event():
     createEngine()
     if engine:
