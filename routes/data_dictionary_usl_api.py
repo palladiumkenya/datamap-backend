@@ -56,6 +56,10 @@ async def data_dictionary_term_usl(dictionary_id: str):
 
         response_terms = data_dictionary_terms_list_entity(terms)
         if not response_terms:
+            dictionary = DataDictionariesUSL.objects.get(id=dictionary_id)
+            dictionary_response = data_dictionary_usl_entity(dictionary)
+            if dictionary_response:
+                return {"name": dictionary_response["name"], "dictionary_terms": []}
             return {"name": None, "dictionary_terms": []}
 
         grouped_terms = defaultdict(list)
