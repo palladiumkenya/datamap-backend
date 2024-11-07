@@ -11,7 +11,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from database import database
 from models.models import DataDictionaries, DataDictionaryTerms, UniversalDictionaryConfig
-from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity
+from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
+    data_dictionary_entity
 
 router = APIRouter()
 
@@ -199,17 +200,58 @@ def create_tables():
         sync_table(dynamic_table)
 
 
+def pull_dict_from_universal(universal_dict_config):
+    """
+    Pull data dictionary from universal dictionary via api
+    :param universal_dict_config: api config for universal dictionary
+    :return: data dictionary
+    """
+    headers = {"Authorization": f"Bearer {universal_dict_config.universal_dictionary_jwt}"}
+    response = requests.get(universal_dict_config.universal_dictionary_url, headers=headers)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.json())
+    return response.json()
+
+
 @router.get("/sync_all/{datasource_id}")
 def sync_all(datasource_id: str, background_tasks: BackgroundTasks):
     universal_dict_config = UniversalDictionaryConfig.objects.first()
     if universal_dict_config is not None:
-        headers = {"Authorization": f"Bearer {universal_dict_config.universal_dictionary_jwt}"}
-        response = requests.get(universal_dict_config.universal_dictionary_url, headers=headers)
-
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=response.json())
-        dict_map = sync_dictionaries(datasource_id, response.json().get("data"))
+        response = pull_dict_from_universal(universal_dict_config)
+        dict_map = sync_dictionaries(datasource_id, response.get("data"))
         background_tasks.add_task(create_tables)
         return {"message": "All data synced successfully", "data": dict_map}
+    else:
+        return {"message": "Please add a valid Universal Dictionary Configuration first"}
+
+
+@router.get("/dictionary_version_notification")
+def dictionary_version_notification():
+    universal_dict_config = UniversalDictionaryConfig.objects.first()
+    if universal_dict_config is not None:
+        response = pull_dict_from_universal(universal_dict_config)
+
+        to_update = False
+        to_update_count = 0
+        for universal_dict in response.get("data"):
+            dictionary = DataDictionaries.objects.filter(name=universal_dict["dictionary"]["version_number"]).first()
+            if dictionary is not None:
+                dictionary = data_dictionary_entity(dictionary)
+                if (
+                        universal_dict["dictionary"]["version_number"] != dictionary["dictionary"]["version_number"]
+                        and universal_dict["dictionary"]["is_published"] != dictionary["dictionary"]["is_published"]
+                ):
+                    to_update = True
+                    to_update_count += 1
+            else:
+                if universal_dict["dictionary"]["is_published"]:
+                    to_update = True
+                    to_update_count += 1
+
+        return {
+            "message": f"You have {to_update_count} pending updates to your data dictionary.",
+            "to_update": to_update
+        }
     else:
         return {"message": "Please add a valid Universal Dictionary Configuration first"}

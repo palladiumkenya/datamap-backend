@@ -1,14 +1,9 @@
 def data_dictionary_entity(dictionary) -> dict:
     return {
-        "term_id": str(dictionary["id"]),
-        "dictionary_id": str(dictionary["dictionary_id"]),
-        "dictionary_name": str(dictionary["name"]),
-        "term": str(dictionary["term"]),
-        "data_type": str(dictionary["data_type"]),
-        "is_required": bool(dictionary["is_required"]),
-        "term_description": str(dictionary["term_description"]),
-        "expected_values": str(dictionary["expected_values"]),
-        "is_active": bool(dictionary["is_active"]),
+        "name": str(dictionary["name"]),
+        "id": str(dictionary["id"]),
+        "version_number": str(dictionary["version_number"]),
+        "is_published": dictionary["is_published"],
         "created_at": dictionary["created_at"],
         "updated_at": dictionary["updated_at"]
     }
