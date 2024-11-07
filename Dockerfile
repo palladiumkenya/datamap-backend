@@ -27,4 +27,4 @@ EXPOSE 4142
 
 
 # Command to run the application and start the cron job
-CMD uvicorn main:app --host 0.0.0.0 --port 2122
+CMD uvicorn main:app --host 0.0.0.0 --port 4142
