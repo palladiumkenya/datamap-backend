@@ -1,6 +1,6 @@
 .venv
 .env
-.env-cassandra.example
+.env-cassandra
 test_main.http
 
 # Byte-compiled / optimized / DLL files

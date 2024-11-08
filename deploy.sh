@@ -7,7 +7,7 @@ CONTAINER_NAME="datamap-backend"
 git pull origin master
 
 # Build the new Docker image
-docker compose build app
+docker compose build datamap
 
 # Stop the running container if it's running
 if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
@@ -16,6 +16,6 @@ if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
 fi
 
 # Start the new container
-docker compose up -d app
+docker compose up -d datamap
 
 echo "Datamap Backend Container updated successfully!"
