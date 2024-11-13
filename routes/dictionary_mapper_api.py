@@ -42,19 +42,19 @@ router = APIRouter()
 # # Create an inspector object to inspect the database
 engine = None
 inspector = None
-
+metadata = None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def createEngine():
     global engine, inspector, metadata
     try:
-        credentials = AccessCredentials.objects().all()
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials:
-            credentials = access_credential_list_entity(credentials)
+            # credentials = access_credential_list_entity(credentials)
             connection_string = credentials
             # engine = create_engine(connection_string[0]["conn_string"])
-            engine = create_engine(connection_string[0]["conn_string"])
+            engine = create_engine(connection_string["conn_string"])
 
             inspector = inspect(engine)
             metadata = MetaData()
@@ -77,8 +77,8 @@ async def startup_event():
     createEngine()
     if engine:
         SessionLocal.configure(bind=engine)
-    else:
-        raise HTTPException(status_code=500, detail="Failed to initialize database engine")
+    # else:
+    #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
 # @router.get('/base_schemas')
@@ -212,35 +212,38 @@ async def base_variables(base_lookup: str):
 
 @router.get('/get_database_columns')
 async def get_database_columns():
-    try:
-        dbTablesAndColumns={}
+    if metadata:
+        try:
+            dbTablesAndColumns={}
 
-        table_names = metadata.tables.keys()
+            table_names = metadata.tables.keys()
 
-        for table_name in table_names:
-            # Load the table schema from MetaData
-            table = Table(table_name, metadata, autoload_with=engine)
+            for table_name in table_names:
+                # Load the table schema from MetaData
+                table = Table(table_name, metadata, autoload_with=engine)
 
-            # Print column names and types
-            getcolumnnames = []
-            for column in table.columns:
-                getcolumnnames.append({"name": column.name, "type": str(column.type)})
-            # columns = inspector.get_columns(table_name)
+                # Print column names and types
+                getcolumnnames = []
+                for column in table.columns:
+                    getcolumnnames.append({"name": column.name, "type": str(column.type)})
+                # columns = inspector.get_columns(table_name)
 
-            # getcolumnnames = []
-            # for column in columns:
-            #
-            #     datatype=column['type']
-            #     getcolumnnames.append({"Column": {column.name}, "Type": {column.type}})
-            #     # getcolumnnames.append({"name":column['name'], "type":column['type']})
+                # getcolumnnames = []
+                # for column in columns:
+                #
+                #     datatype=column['type']
+                #     getcolumnnames.append({"Column": {column.name}, "Type": {column.type}})
+                #     # getcolumnnames.append({"name":column['name'], "type":column['type']})
 
-            dbTablesAndColumns[table_name] = getcolumnnames
-        # credential = credential
-        # print("dbTablesAndColumns =======>",dbTablesAndColumns)
-        return dbTablesAndColumns
-    except SQLAlchemyError as e:
-        log.error('Error reflecting database: --->', e)
-
+                dbTablesAndColumns[table_name] = getcolumnnames
+            # credential = credential
+            # print("dbTablesAndColumns =======>",dbTablesAndColumns)
+            return dbTablesAndColumns
+        except SQLAlchemyError as e:
+            log.error('Error reflecting database: --->', e)
+    else:
+        log.error('Error reflecting source database: --->')
+        raise HTTPException(status_code=500, detail='Error reflecting source database')
 
 
 @router.post('/add_mapped_variables/{baselookup}')

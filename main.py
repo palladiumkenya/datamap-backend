@@ -25,12 +25,14 @@ async def startup_event():
     sync_table(MappedVariables)
     sync_table(DataDictionaries)
     sync_table(DataDictionaryTerms)
+    sync_table(DataDictionariesUSL)
+    sync_table(DataDictionaryTermsUSL)
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
 app.include_router(dictionary_mapper_api.router, tags=['Selector'], prefix='/api/dictionary_mapper')
 app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix='/api/data_dictionary')
-# app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
+app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
 
 
 @app.get("/api/healthchecker")
