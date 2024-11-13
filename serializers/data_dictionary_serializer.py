@@ -29,8 +29,22 @@ def data_dictionary_usl_entity(dictionary) -> dict:
     return {
         "name": str(dictionary["name"]),
         "id": str(dictionary["id"]),
+        "version_number": str(dictionary["version_number"]),
+        "is_published": dictionary["is_published"],
         "created_at": dictionary["created_at"],
         "updated_at": dictionary["updated_at"]
+    }
+
+
+def data_dictionary_change_log_entity(change_log) -> dict:
+    return {
+        "id": str(change_log["id"]),
+        "version_number": str(change_log["version_number"]),
+        "operation": str(change_log["operation"]),
+        "term_id": str(change_log["term_id"]),
+        "old_value": str(change_log["old_value"]),
+        "new_value": str(change_log["new_value"]),
+        "changed_at": change_log["changed_at"].strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
@@ -44,3 +58,7 @@ def data_dictionary_terms_list_entity(terms) -> list:
 
 def data_dictionary_usl_list_entity(dictionaries) -> list:
     return [data_dictionary_usl_entity(dictionary) for dictionary in dictionaries]
+
+
+def data_dictionary_change_log_list_entity(change_logs) -> list:
+    return [data_dictionary_change_log_entity(change_log) for change_log in change_logs]
