@@ -48,6 +48,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def createEngine():
     global engine, inspector, metadata
+    log.info('===== start creating an engine =====')
+
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials:
@@ -59,9 +61,11 @@ def createEngine():
             inspector = inspect(engine)
             metadata = MetaData()
             metadata.reflect(bind=engine)
+            log.info('===== Database reflected ====')
 
     except SQLAlchemyError as e:
         # Log the error or handle it as needed
+        log.error('===== Database not reflected ==== ERROR:', str(e))
         raise HTTPException(status_code=500, detail="Database connection error"+str(e))
 
 
@@ -72,7 +76,7 @@ def get_db():
     finally:
         db_session.close()
 
-# @router.on_event("startup")
+@router.on_event("startup")
 async def startup_event():
     createEngine()
     if engine:
@@ -224,6 +228,8 @@ async def get_database_columns():
 
                 # Print column names and types
                 getcolumnnames = []
+                # add epmty string as part of options
+                getcolumnnames.append({"name": "", "type": "-"})
                 for column in table.columns:
                     getcolumnnames.append({"name": column.name, "type": str(column.type)})
                 # columns = inspector.get_columns(table_name)
@@ -358,7 +364,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 10"
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
 
         log.info("========= Successfully generated query ==========")
         print("========= Successfully generated query result==========", query)
@@ -446,142 +452,3 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
         return e
 
-
-@router.get('/send/usl/{baselookup}')
-async def send_data(baselookup:str, background_tasks: BackgroundTasks, db_session: Session = Depends(get_db)):
-    try:
-
-        query = query = f"""
-                           SELECT * FROM {baselookup}
-                       """
-
-        cass_session = database.cassandra_session_factory()
-        select_statement = query
-        print("query ----> ", select_statement)
-        result = cass_session.execute(select_statement)
-        print('result to send ', result)
-
-        # columns=result.column_names
-        # baseRepoLoaded = [row for row in json.dumps(result)]
-        baseRepoLoaded = [{key: (str(value) if isinstance(value, uuid.UUID)
-                                else value.strftime('%Y-%m-%d') if isinstance(value,datetime.date)  # Convert date to string
-                                else value) for key, value in
-                            row.items()} for row in result]
-
-        # print('staging to send ', settings.STAGING_API+baselookup)
-        print('baseRepoLoaded to send ', baseRepoLoaded)
-
-        cass_session.cluster.shutdown()
-        data = {"facility":"BOMU facility",
-                "facility_id":baseRepoLoaded[0]["facilityid"],
-                "data":baseRepoLoaded
-                }
-        res = requests.post(settings.STAGING_API+baselookup,
-                            json=data)
-        print("STAGING_API data--->",res.status_code)
-
-        background_tasks.add_task(simulate_long_task)
-        # for progress in range(0, 101, 10):
-        #     time.sleep(1)
-        #     await send_progress_update(progress)
-
-        return res.status_code
-    except Exception as e:
-        log.error("Error sending data ==> %s", str(e))
-
-        return HTTPException(status_code=500,  detail=e)
-    except BaseException as be:
-        log.error("BaseException: Error sending data ==> %s", str(be))
-
-        return HTTPException(status_code=500,  detail=be)
-
-async def simulate_long_task():
-    for progress in range(0, 101, 10):
-        # Simulate a time-consuming task
-        time.sleep(1)
-        await send_progress_update(progress)
-        print("simulate_long_task ,", progress)
-
-
-@router.get('/manifest/usl/{baselookup}')
-async def manifest(baselookup:str, db_session: Session = Depends(get_db)):
-    try:
-        cass_session = database.cassandra_session_factory()
-
-        count_query = query = f"""
-                           SELECT count(*) FROM {baselookup}
-                       """
-        count = cass_session.execute(count_query)
-
-        columns_query = f"""
-                SELECT column_name FROM system_schema.columns
-                WHERE keyspace_name = 'datamap' AND table_name = '{baselookup}';
-                """
-        columns = cass_session.execute(columns_query)
-
-        source_system_query = f"""
-                        SELECT * FROM access_credentials
-                        WHERE is_active = true ALLOW FILTERING;
-                        """
-        source_system = cass_session.execute(source_system_query)
-        source_system = access_credential_list_entity(source_system)
-        print("source_system ==>",source_system, source_system[0]['system'])
-
-        manifest = {
-            "usl_repository_name": baselookup,
-            "count": [row['count'] for row in count][0],
-            "columns": [row['column_name'] for row in columns],
-            "session_id": uuid.uuid4(),
-            "source_system_name": source_system[0]['system'],
-            "source_system_version": source_system[0]['system_version'],
-            "opendive_version": "1.0.0",
-            "facility": "BOMU facility"
-        }
-        print("manifest ==>",manifest)
-
-        cass_session.cluster.shutdown()
-        print("manifest -->",manifest)
-        return manifest
-    except Exception as e:
-        log.error("Error sending data ==> %s", str(e))
-
-        return HTTPException(status_code=500,  detail=e)
-    except BaseException as be:
-        log.error("BaseException: Error sending data ==> %s", str(be))
-
-        return HTTPException(status_code=500,  detail=be)
-
-
-
-# Dictionary to store WebSocket connections and their associated progress
-connections = {}
-
-@router.websocket("/ws/progress")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    # Store the connection to send progress updates later
-    connections[websocket] = 0
-    print("websocket connections ==>", connections)
-
-    try:
-        while True:
-            # Keep the connection open to send updates
-            await websocket.receive_text()
-            print("websocket ==>", websocket)
-    except:
-        # Clean up the WebSocket connection on error or disconnect
-        del connections[websocket]
-        await websocket.close()
-        print("clean up websocket ==>", websocket)
-
-
-async def send_progress_update(progress):
-    # Send the progress update to all connected WebSocket clients
-    print("connections list ? ==>", list(connections))
-
-    for websocket in list(connections.keys()):
-        try:
-            await websocket.send_json({"progress": progress})
-            print("progress updating ? ==>",progress, " list ==>", list(connections.keys()))
-        except:
-            del connections[websocket]  # Remove if the client has disconnected
