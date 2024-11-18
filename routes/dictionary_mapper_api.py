@@ -1,29 +1,20 @@
-from fastapi import  Depends, HTTPException, WebSocket, BackgroundTasks
-import time
+from fastapi import  Depends, HTTPException
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
-import uuid
 from cassandra.query import BatchStatement
-from cassandra import ConsistencyLevel
 import datetime
-from datetime import date
 import json
 from fastapi import APIRouter
 from typing import List
-import pandas as pd
-import requests
-from openpyxl import load_workbook
-from io import BytesIO
+
 import logging
 
 import settings
 from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
 from database import database
-from serializers.dictionary_mapper_serializer import indicator_selector_entity,indicator_selector_list_entity
-from serializers.access_credentials_serializer import access_credential_list_entity
-from serializers.data_dictionary_serializer import data_dictionary_list_entity
+from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
+from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
 from settings import settings
 
 
@@ -85,44 +76,6 @@ async def startup_event():
     #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
-# @router.get('/base_schemas')
-# async def base_schemas():
-#
-#     # Check if download was successful
-#     try:
-#
-#         wb = load_workbook('configs/data_dictionary/dictionary.xlsx')
-#         sheets = wb.sheetnames
-#         print('sheets ', sheets)
-#         cass_session = database.cassandra_session_factory()
-#
-#         schemas = []
-#
-#         for schema in sheets:
-#             print('schema --> ', schema)
-#
-#             df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
-#             base_variables = []
-#             for i in range(0, df.shape[0]):
-#                 query = "SELECT * FROM mapped_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
-#                 # results = database.execute_query(query)
-#                 rows= cass_session.execute(query)
-#                 results = []
-#                 for row in rows:
-#                     results.append(row)
-#                 matchedVariable = False if not results else True
-#
-#                 base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
-#
-#             baseSchemaObj = {}
-#             baseSchemaObj["schema"] = schema
-#             baseSchemaObj["base_variables"] = base_variables
-#
-#             schemas.append(baseSchemaObj)
-#         return schemas
-#     except Exception as e:
-#         log.error('System ran into an error --> ', e)
-#         return e
 
 @router.get('/base_schemas')
 async def base_schemas():
@@ -135,30 +88,29 @@ async def base_schemas():
         return e
 
 
-@router.get('/base_schema_variables/{base_lookup}')
-async def base_schema_variables(base_lookup: str):
+@router.get('/base_schema_variables/{baselookup}')
+async def base_schema_variables(baselookup: str):
     try:
-
-        cass_session = database.cassandra_session_factory()
+        dictionary = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
+        dictionary = data_dictionary_terms_list_entity(dictionary)
 
         schemas = []
 
-        # df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
-        query = "SELECT * FROM data_dictionary_terms WHERE dictionary='%s' ALLOW FILTERING;" % (base_lookup)
-        dictionary = cass_session.execute(query)
         base_variables = []
         for i in dictionary:
-            query = "SELECT * FROM mapped_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(i['term'], base_lookup)
-            rows= cass_session.execute(query)
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup).allow_filtering()
+
+            configs = mapped_variable_list_entity(configs)
+
             results = []
-            for row in rows:
+            for row in configs:
                 results.append(row)
             matchedVariable = False if not results else True
 
             base_variables.append({'variable':i['term'], 'matched':matchedVariable})
 
         baseSchemaObj = {}
-        baseSchemaObj["schema"] = base_lookup
+        baseSchemaObj["schema"] = baselookup
         baseSchemaObj["base_variables"] = base_variables
 
         schemas.append(baseSchemaObj)
@@ -196,24 +148,14 @@ async def get_database_columns():
                 # Load the table schema from MetaData
                 table = Table(table_name, metadata, autoload_with=engine)
 
-                # Print column names and types
                 getcolumnnames = []
                 # add epmty string as part of options
                 getcolumnnames.append({"name": "", "type": "-"})
                 for column in table.columns:
                     getcolumnnames.append({"name": column.name, "type": str(column.type)})
-                # columns = inspector.get_columns(table_name)
-
-                # getcolumnnames = []
-                # for column in columns:
-                #
-                #     datatype=column['type']
-                #     getcolumnnames.append({"Column": {column.name}, "Type": {column.type}})
-                #     # getcolumnnames.append({"name":column['name'], "type":column['type']})
 
                 dbTablesAndColumns[table_name] = getcolumnnames
-            # credential = credential
-            # print("dbTablesAndColumns =======>",dbTablesAndColumns)
+
             return dbTablesAndColumns
         except SQLAlchemyError as e:
             log.error('Error reflecting database: --->', e)
@@ -236,21 +178,20 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
         return {"status":500, "message":e}
 
 
-@router.get('/generate_config')
-async def generate_config(baseSchema:str):
+@router.get('/generate_config/{baselookup}')
+async def generate_config(baselookup:str):
     try:
-        cass_session = database.cassandra_session_factory()
-
-        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
-        config = cass_session.execute(query)
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
 
         results = []
-        for row in config:
-            results.append(indicator_selector_entity(row))
+        for row in configs:
+            results.append(row)
 
-        with open('configs/schemas/'+baseSchema +'.conf', 'w') as f:
+        with open('configs/schemas/'+baselookup +'.conf', 'w') as f:
             f.write(str(results))
 
+        log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
         return 'success'
     except Exception as e:
         log.error("Error generating config ==> %s", str(e))
@@ -260,33 +201,29 @@ async def generate_config(baseSchema:str):
 
 
 
-@router.get('/import_config')
-async def import_config(baseSchema:str):
+@router.get('/import_config/{baselookup}')
+async def import_config(baselookup:str):
     try:
         # delete existing configs for base repo
         cass_session = database.cassandra_session_factory()
 
-        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
+        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
         existingVariables = cass_session.execute(query)
 
         for var in existingVariables:
-            print('delete before ---> ', var, var["id"])
             MappedVariables.objects(id=var["id"]).delete()
-            print('delete after ---> ', var)
 
-
-        f = open('configs/schemas/'+baseSchema +'.conf', 'r')
+        f = open('configs/schemas/'+baselookup +'.conf', 'r')
 
         configImportStatements = f.read()
         configs = json.loads(configImportStatements.replace("'", '"'))
         for conf in configs:
-            print("print conf imported -->", conf)
             MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
                                       base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
 
         f.close()
-        log.info("========= Successfully imported config ==========")
+        log.info("+++++++++ Successfully imported config ++++++++++")
 
         return 'success'
     except Exception as e:
@@ -298,14 +235,11 @@ async def import_config(baseSchema:str):
 # @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup:str):
     try:
-
-        cass_session = database.cassandra_session_factory()
-
-        query = "SELECT * FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
-        configs = cass_session.execute(query)
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
 
         primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
-        primaryTableDetails = indicator_selector_entity(primaryTable)
+        primaryTableDetails = mapped_variable_list_entity(primaryTable)
 
         mapped_columns = []
         mapped_joins = []

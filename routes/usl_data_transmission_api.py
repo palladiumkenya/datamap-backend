@@ -8,9 +8,7 @@ from fastapi import APIRouter
 import requests
 import logging
 import settings
-from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
 from database import database
-from serializers.dictionary_mapper_serializer import indicator_selector_entity,indicator_selector_list_entity
 from serializers.access_credentials_serializer import access_credential_list_entity
 from settings import settings
 

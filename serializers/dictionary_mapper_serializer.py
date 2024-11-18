@@ -1,4 +1,4 @@
-def indicator_selector_entity(variable) -> dict:
+def mapped_variable_entity(variable) -> dict:
     return {
         "id": str(variable["id"]),
         "base_repository": str(variable["base_repository"]),
@@ -13,8 +13,8 @@ def indicator_selector_entity(variable) -> dict:
     }
 
 
-def indicator_selector_list_entity(variables) -> list:
-    return [indicator_selector_entity(variable) for variable in variables]
+def mapped_variable_list_entity(variables) -> list:
+    return [mapped_variable_entity(variable) for variable in variables]
 
 
 def indicator_entity(indicator) -> dict:

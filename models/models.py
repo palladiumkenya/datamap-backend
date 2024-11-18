@@ -63,6 +63,38 @@ class IndicatorQueries(Model):
         self.updated_at = datetime.utcnow()
         super().save()
 
+class IndicatorHistory(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'indicator_history'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    indicator = columns.Text(required=True)
+    indicator_value = columns.Text(required=True, default="0")
+    indicator_date = columns.DateTime(required=True, default=datetime.utcnow())
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    usl_repository_name = columns.Text(required=True)
+    source_system_id = columns.UUID(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    def save(self):
+        self.created_at = datetime.utcnow()
+        super().save()
+
+class TransmissionHistory(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'transmission_history'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    usl_repository_name = columns.Text(required=True)
+    source_system_id = columns.UUID(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    started_at = columns.DateTime(required=True, default=datetime.utcnow())
+    ended_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.started_at = datetime.utcnow()
+        super().save()
+
 
 class DataDictionaries(Model):
     __keyspace__ = 'datamap'
@@ -192,3 +224,4 @@ class UniversalDictionaryConfig(Model):
     def save(self):
         self.updated_at = datetime.utcnow()
         super().save()
+
