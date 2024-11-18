@@ -100,15 +100,6 @@ async def manifest(baselookup:str):
         return HTTPException(status_code=500,  detail=be)
 
 
-# @router.get('/send/usl/{baselookup}')
-# async def send_data(baselookup: str, background_tasks: BackgroundTasks):
-#     try:
-#         send_progress(baselookup)
-#     except Exception as e:
-#         log.error("Error sending progress==> %s", str(e))
-#
-#         return HTTPException(status_code=500, detail=e)
-
 async def send_progress(baselookup: str, websocket: WebSocket):
     try:
         cass_session = database.cassandra_session_factory()
@@ -180,11 +171,11 @@ async def send_progress(baselookup: str, websocket: WebSocket):
         raise HTTPException(status_code=500, detail=be)
 
 
-@router.websocket("/ws/progress")
-async def websocket_endpoint(websocket: WebSocket):
+@router.websocket("/ws/progress/{baselookup}")
+async def websocket_endpoint(baselookup: str, websocket: WebSocket):
     try:
         await websocket.accept()
-        await send_progress('client_demographics',websocket)
+        await send_progress(baselookup,websocket)
     except WebSocketDisconnect:
         log.error("Client disconnected")
     except Exception as e:
