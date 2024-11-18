@@ -234,13 +234,15 @@ def dictionary_version_notification():
 
         to_update = False
         to_update_count = 0
+        existing_dictionaries = []
         for universal_dict in response.get("data"):
-            dictionary = DataDictionaries.objects.filter(name=universal_dict["dictionary"]["version_number"]).first()
+            dictionary = DataDictionaries.objects.filter(name=universal_dict["dictionary"]["name"]).first()
+            existing_dictionaries.append(dictionary.id)
             if dictionary is not None:
                 dictionary = data_dictionary_entity(dictionary)
                 if (
-                        universal_dict["dictionary"]["version_number"] != dictionary["dictionary"]["version_number"]
-                        and universal_dict["dictionary"]["is_published"] != dictionary["dictionary"]["is_published"]
+                        universal_dict["dictionary"]["version_number"] != dictionary["version_number"]
+                        or universal_dict["dictionary"]["is_published"] != dictionary["is_published"]
                 ):
                     to_update = True
                     to_update_count += 1
@@ -248,6 +250,13 @@ def dictionary_version_notification():
                 if universal_dict["dictionary"]["is_published"]:
                     to_update = True
                     to_update_count += 1
+
+        # get changes to dictionaries that no longer exist
+        deleted_dictionaries = DataDictionaries.objects.all()
+        filtered_dicts = [obj for obj in deleted_dictionaries if obj.id not in existing_dictionaries]
+        if len(filtered_dicts) > 0:
+            to_update = True
+            to_update_count += len(filtered_dicts)
 
         return {
             "message": f"You have {to_update_count} pending updates to your data dictionary.",
