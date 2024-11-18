@@ -51,63 +51,6 @@ async def extracted_data(baselookup:str):
 
 
 
-
-@router.get('/send/usl/{baselookup}')
-async def send_data(baselookup:str, background_tasks: BackgroundTasks):
-    try:
-
-        query = query = f"""
-                           SELECT * FROM {baselookup}
-                       """
-
-        cass_session = database.cassandra_session_factory()
-        select_statement = query
-        print("query ----> ", select_statement)
-        result = cass_session.execute(select_statement)
-        print('result to send ', result)
-
-        # columns=result.column_names
-        # baseRepoLoaded = [row for row in json.dumps(result)]
-        baseRepoLoaded = [{key: (str(value) if isinstance(value, uuid.UUID)
-                                else value.strftime('%Y-%m-%d') if isinstance(value,datetime.date)  # Convert date to string
-                                else value) for key, value in
-                            row.items()} for row in result]
-
-        # print('staging to send ', settings.STAGING_API+baselookup)
-        print('baseRepoLoaded to send ', baseRepoLoaded)
-
-        cass_session.cluster.shutdown()
-        data = {"facility":"BOMU facility",
-                "facility_id":baseRepoLoaded[0]["facilityid"],
-                "data":baseRepoLoaded
-                }
-        res = requests.post(settings.STAGING_API+baselookup,
-                            json=data)
-        print("STAGING_API data--->",res.status_code)
-
-        background_tasks.add_task(simulate_long_task)
-        # for progress in range(0, 101, 10):
-        #     time.sleep(1)
-        #     await send_progress_update(progress)
-
-        return res.status_code
-    except Exception as e:
-        log.error("Error sending data ==> %s", str(e))
-
-        return HTTPException(status_code=500,  detail=e)
-    except BaseException as be:
-        log.error("BaseException: Error sending data ==> %s", str(be))
-
-        return HTTPException(status_code=500,  detail=be)
-
-async def simulate_long_task():
-    for progress in range(0, 101, 10):
-        # Simulate a time-consuming task
-        time.sleep(1)
-        await send_progress_update(progress)
-        print("simulate_long_task ,", progress)
-
-
 @router.get('/manifest/repository/{baselookup}')
 async def manifest(baselookup:str):
     try:
@@ -157,35 +100,104 @@ async def manifest(baselookup:str):
         return HTTPException(status_code=500,  detail=be)
 
 
+# @router.get('/send/usl/{baselookup}')
+# async def send_data(baselookup: str, background_tasks: BackgroundTasks):
+#     try:
+#         send_progress(baselookup)
+#     except Exception as e:
+#         log.error("Error sending progress==> %s", str(e))
+#
+#         return HTTPException(status_code=500, detail=e)
+
+async def send_progress(baselookup: str, websocket: WebSocket):
+    try:
+        cass_session = database.cassandra_session_factory()
+
+        totalRecordsquery = f"SELECT COUNT(*) as count FROM {baselookup}"
+        totalRecordsresult = cass_session.execute(totalRecordsquery)
+
+        # total_records = totalRecordsresult.one()[0]
+        total_records = [row for row in totalRecordsresult][0]["count"]
+
+        # Define batch size (how many records per batch)
+        batch_size = settings.BATCH_SIZE
+        total_batches = total_records // batch_size + (1 if total_records % batch_size != 0 else 0)
+
+        processed_batches = 0
+
+        select_statement = f"""
+                                       SELECT * FROM {baselookup} 
+                                   """
+        totalResults = cass_session.execute(select_statement)
+        for batch in range(total_batches):
+            # select_statement = f"""
+            #                    SELECT * FROM {baselookup} LIMIT {batch_size} OFFSET {batch * batch_size}
+            #                """
+            #
+            # result = cass_session.execute(select_statement)
+            offset = batch * batch_size
+            limit = batch_size
+            result = totalResults[offset:offset + limit]
+            log.info("++++++++ off set and limit +++++++", offset, limit)
+            baseRepoLoaded = [{key: (str(value) if isinstance(value, uuid.UUID)
+                                    else value.strftime('%Y-%m-%d') if isinstance(value,datetime.date)  # Convert date to string
+                                    else value) for key, value in
+                                    row.items()} for row in result]
+
+            # print('staging to send ', settings.STAGING_API+baselookup)
+            log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
+
+            data = {"facility": "BOMU facility",
+                    "facility_id": baseRepoLoaded[0]["facilityid"],
+                    "data": baseRepoLoaded
+                    }
+
+            log.info(f'===== STARTED SENDING DATA TO STAGING_API ===== Batch No. {batch}')
+            res = requests.post(settings.STAGING_API + baselookup,
+                                json=data)
+            log.info(f'===== SUCCESSFULLY SENT BATCH No. {batch} TO STAGING_API ===== Status Code :{res.status_code} ')
+
+            # Increment processed batches
+            processed_batches += 1
+            progress = int((processed_batches / total_batches) * 100)
+
+            # Send the progress to the WebSocket
+            await websocket.send_text(f"{progress}")
+
+        # websocket.send_text(f"100")
+        await websocket.close()
+        log.info("++++++++++ All batches loaded and sent +++++++++++")
+        return {"status_code":200, "message": "suuccessfully sent batches"}
+    except Exception as e:
+        log.error("Error sending data ==> %s", str(e))
+        await websocket.send_text(f"error ocurred")
+        # await websocket.close()
+        raise HTTPException(status_code=500, detail=e)
+    except BaseException as be:
+        log.error("BaseException: Error sending data ==> %s", str(be))
+        await websocket.send_text(f"error ocurred")
+        # await websocket.close()
+        raise HTTPException(status_code=500, detail=be)
 
 
 @router.websocket("/ws/progress")
-async def progress_updates(websocket: WebSocket):
-   await websocket.accept()
-   try:
-       for i in range(101):  # Simulating progress (0-100%)
-           await websocket.send_text(f"{i}")
-           await asyncio.sleep(0.1)  # Simulate work delay
-   except WebSocketDisconnect:
-       print("Client disconnected")
+async def websocket_endpoint(websocket: WebSocket):
+    try:
+        await websocket.accept()
+        await send_progress('client_demographics',websocket)
+    except WebSocketDisconnect:
+        log.error("Client disconnected")
+    except Exception as e:
+        log.error("Websocket error ==> %s", str(e))
+        # await websocket.close()
 
-# # Dictionary to store WebSocket connections and their associated progress
-# connections = {}
+
 # @router.websocket("/ws/progress")
-# async def websocket_endpoint(websocket: WebSocket):
-#     await websocket.accept()
-#     # Store the connection to send progress updates later
-#     connections[websocket] = 0
-#     print("websocket connections ==>", connections)
-#
-#     try:
-#         while True:
-#             # Keep the connection open to send updates
-#             await websocket.receive_text()
-#             print("websocket ==>", websocket)
-#     except:
-#         # Clean up the WebSocket connection on error or disconnect
-#         del connections[websocket]
-#         await websocket.close()
-#         print("clean up websocket ==>", websocket)
-
+# async def progress_updates(websocket: WebSocket):
+#    await websocket.accept()
+#    try:
+#        for i in range(101):  # Simulating progress (0-100%)
+#            await websocket.send_text(f"{i}")
+#            await asyncio.sleep(0.1)  # Simulate work delay
+#    except WebSocketDisconnect:
+#        print("Client disconnected")

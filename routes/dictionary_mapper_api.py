@@ -136,7 +136,7 @@ async def base_schemas():
 
 
 @router.get('/base_schema_variables/{base_lookup}')
-async def base_variables(base_lookup: str):
+async def base_schema_variables(base_lookup: str):
     try:
 
         cass_session = database.cassandra_session_factory()
@@ -166,48 +166,18 @@ async def base_variables(base_lookup: str):
     except Exception as e:
         log.error('System ran into an error fetching base_schema_variables --->', e)
         return e
-# @router.get('/base_schema_variables/{base_lookup}')
-# async def base_variables(base_lookup: str):
-#     try:
-#
-#         cass_session = database.cassandra_session_factory()
-#
-#         schemas = []
-#
-#         df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
-#         base_variables = []
-#         for i in range(0, df.shape[0]):
-#             query = "SELECT * FROM mapped_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
-#             rows= cass_session.execute(query)
-#             results = []
-#             for row in rows:
-#                 results.append(row)
-#             matchedVariable = False if not results else True
-#
-#             base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
-#
-#         baseSchemaObj = {}
-#         baseSchemaObj["schema"] = base_lookup
-#         baseSchemaObj["base_variables"] = base_variables
-#
-#         schemas.append(baseSchemaObj)
-#         return schemas
-#     except Exception as e:
-#         log.error('System ran into an error fetching base_schema_variables --->', e)
-#         return e
 
 
 @router.get('/base_variables/{base_lookup}')
-async def base_variables(base_lookup: str):
+async def base_variables_lookup(base_lookup: str):
 
     try:
-        cass_session = database.cassandra_session_factory()
 
-        query = "SELECT * FROM data_dictionary_terms WHERE dictionary='%s' ALLOW FILTERING;" % (base_lookup)
-        dictionary = cass_session.execute(query)
+        dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=base_lookup).all()
         base_variables = []
-        for i in dictionary:
-            base_variables.append({"term":i['term'], "datatype":i['data_type']})
+        for term in dictionary_terms:
+            base_variables.append(term.term)
+
         return base_variables
     except Exception as e:
         log.error('System ran into an error fetching base_variables --->', e)
@@ -266,16 +236,6 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
         return {"status":500, "message":e}
 
 
-# @router.get('/tx_curr_variables')
-# async def available_connections():
-#     variables = MappedVariables.objects().all()
-#     variables = indicator_selector_list_entity(variables)
-#
-#     # print(credentials)
-#     return {'variables': variables}
-
-
-
 @router.get('/generate_config')
 async def generate_config(baseSchema:str):
     try:
@@ -308,7 +268,7 @@ async def import_config(baseSchema:str):
 
         query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baseSchema)
         existingVariables = cass_session.execute(query)
-        print('existingVariables ---> ',existingVariables)
+
         for var in existingVariables:
             print('delete before ---> ', var, var["id"])
             MappedVariables.objects(id=var["id"]).delete()
@@ -347,8 +307,6 @@ def generate_query(baselookup:str):
         primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
         primaryTableDetails = indicator_selector_entity(primaryTable)
 
-        print("primaryTableDetails ---->", primaryTableDetails)
-
         mapped_columns = []
         mapped_joins = []
 
@@ -366,11 +324,10 @@ def generate_query(baselookup:str):
 
         query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
 
-        log.info("========= Successfully generated query ==========")
-        print("========= Successfully generated query result==========", query)
+        log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
-        log.error("Error importing config ==> %s", str(e))
+        log.error("Error generating query. ERROR: ==> %s", str(e))
 
         return e
 
@@ -419,9 +376,6 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
 
-                # rowvalues = data.values()
-                # valuedata.extend(['NULL' if value is None else f"'{value}'" for value in data.values()])
-
                 rowvalues = data.values()
 
                 quoted_values = [
@@ -431,13 +385,11 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
                     else str(value)
                     for value in rowvalues
                 ]
-                print('quoted_values -->',quoted_values)
 
                 query = f"""
                            INSERT INTO {baselookup} (client_repository_id, {", ".join(tuple(data.keys()))})
                            VALUES (uuid(), {', '.join(quoted_values)})
                        """
-                print('insert query -->',query)
                 # insert_resords = cass_session.prepare(query)
                 cass_session.execute(query)
                 # Add multiple insert statements to the batch

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     CASSANDRA_PASSWORD: str
 
     STAGING_API: str
-
+    BATCH_SIZE: int
     # REPORTING_DB: str
     # REPORTING_USER: str
     # REPORTING_PASSWORD: str
