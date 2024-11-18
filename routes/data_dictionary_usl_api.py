@@ -240,6 +240,20 @@ def delete_data_dictionary_term_usl(term_id: str):
     return {"message": "Data dictionary term deleted successfully"}
 
 
+@router.delete("/delete_data_dictionary_usl/{dict_id}")
+def delete_data_dictionary_usl(dict_id: str):
+    dictionary = DataDictionariesUSL.objects(id=UUID(dict_id)).first()
+    if not dictionary:
+        raise HTTPException(status_code=404, detail="Data dictionary term not found")
+
+    terms = DataDictionaryTermsUSL.objects(dictionary_id=str(dictionary.id)).all()
+    for term in terms:
+        term.delete()
+    dictionary.delete()
+
+    return {"message": "Data dictionary deleted successfully"}
+
+
 def log_dictionary_change(dictionary_id, term_id, operation, old_value=None, new_value=None, version_number=None):
 
     change_log = DictionaryChangeLog(
@@ -303,3 +317,18 @@ def get_universal_dictionaries():
         return {"data": formatted_terms, "detail": "Connection successful"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PublishUniversalDictionary(BaseModel):
+    id: str = Field(..., description="ID for dictionary to update")
+
+
+@router.post("/publish/universal_dictionary")
+async def publish_universal_dictionary(data: PublishUniversalDictionary):
+    dictionary = DataDictionariesUSL.objects.filter(id=data.id).first()
+    if dictionary:
+        dictionary.is_published = not dictionary.is_published
+        dictionary.save()
+        return dictionary
+    else:
+        raise HTTPException(status_code=404, detail="Dictionary Not Found")
