@@ -4,9 +4,12 @@
 test_main.http
 
 # Byte-compiled / optimized / DLL files
+*.pyc
 __pycache__/
 *.py[cod]
 *$py.class
+main.cpython-311.pyc
+
 
 # C extensions
 *.so

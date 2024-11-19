@@ -1,11 +1,12 @@
 def data_dictionary_entity(dictionary) -> dict:
     return {
-        "name": str(dictionary["name"]),
         "id": str(dictionary["id"]),
-        "version_number": str(dictionary["version_number"]),
-        "is_published": dictionary["is_published"],
+        "datasource_id": str(dictionary["datasource_id"]),
+        "name": str(dictionary["name"]),
+        "is_published": bool(dictionary["is_published"]),
         "created_at": dictionary["created_at"],
-        "updated_at": dictionary["updated_at"]
+        "updated_at": dictionary["updated_at"],
+        "deleted_at": dictionary["deleted_at"]
     }
 
 
