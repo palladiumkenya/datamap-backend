@@ -238,8 +238,7 @@ def generate_query(baselookup:str):
         configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
         configs = mapped_variable_list_entity(configs)
 
-        primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
-        primaryTableDetails = mapped_variable_list_entity(primaryTable)
+        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
 
         mapped_columns = []
         mapped_joins = []
@@ -256,8 +255,8 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
-
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 1000"
+        print("query generated -->",query)
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
@@ -296,14 +295,11 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
         with db_session as session:
             result = session.execute(query)
-            print("result --->", result)
 
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
-            print("baseRepoLoaded --->", baseRepoLoaded)
 
             processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
-            print("processed_results --->", processed_results)
             # rows = []
             # Create a batch statement
             batch = BatchStatement()
