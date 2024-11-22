@@ -255,7 +255,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 1000"
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
         print("query generated -->",query)
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
