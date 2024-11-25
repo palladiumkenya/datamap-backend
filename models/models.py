@@ -157,7 +157,7 @@ class SiteConfig(Model):
 
 class USLConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionary_terms_usl'
+    __table_name__ = 'usl_config'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     usl_host = columns.Text(required=True)
