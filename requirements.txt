@@ -67,6 +67,7 @@ pydantic==2.7.2
 pydantic-settings==2.3.0
 pydantic_core==2.18.3
 Pygments==2.18.0
+PyJWT==2.10.0
 pymssql==2.3.0
 pypdf==4.2.0
 python-dateutil==2.9.0.post0

@@ -1,4 +1,9 @@
 import json
+import re
+import secrets
+import time
+
+import jwt
 import exrex
 from collections import defaultdict
 from datetime import datetime
@@ -9,7 +14,8 @@ from cassandra.cqlengine.query import DoesNotExist
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
+from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog, \
+    UniversalDictionaryTokens
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
     data_dictionary_change_log_entity, data_dictionary_term_entity, data_dictionary_usl_entity
 
@@ -332,3 +338,49 @@ async def publish_universal_dictionary(data: PublishUniversalDictionary):
         return dictionary
     else:
         raise HTTPException(status_code=404, detail="Dictionary Not Found")
+
+
+@router.get("/universal_dictionary/token")
+def get_universal_dictionary_token():
+    token = UniversalDictionaryTokens.objects.first()
+    if token is not None:
+        return {"token": token.universal_dictionary_token}
+    else:
+        payload = {
+            "iss": "datamap.app",
+            "sub": "universal_dictionary",
+            "isBot": True,
+            "tokenType": "BOT",
+            "iat": int(time.time()),
+            "exp": None
+        }
+        secret = secrets.token_hex(32)
+        new_token = jwt.encode(payload, secret, algorithm="HS256")
+        UniversalDictionaryTokens(
+            universal_dictionary_token=new_token,
+            secret=secret
+        ).save()
+        return {"token": new_token}
+
+
+@router.post("/refresh_universal_dictionary/token")
+async def refresh_universal_dictionary_token():
+    payload = {
+        "iss": "datamap.app",
+        "sub": "universal_dictionary",
+        "isBot": True,
+        "tokenType": "BOT",
+        "iat": int(time.time()),
+        "exp": None
+    }
+    secret = secrets.token_hex(32)
+    new_token = jwt.encode(payload, secret, algorithm="HS256")
+    token = UniversalDictionaryTokens.objects.first()
+
+    if token is not None:
+        token.universal_dictionary_token = new_token
+        token.secret = secret
+        token.save()
+        return {"token": new_token}
+    else:
+        raise HTTPException(status_code=500, detail="No token available")

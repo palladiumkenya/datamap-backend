@@ -61,3 +61,36 @@ class DictionaryChangeLog(Model):
     def save(self):
         self.changed_at = datetime.utcnow()
         super().save()
+
+
+class UniversalDictionaryTokens(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'universal_dictionary_tokens'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    universal_dictionary_token = columns.Text(required=True)
+    secret = columns.Text(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+
+class UniversalDictionaryFacilityPulls(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'universal_dictionary_facility_pulls'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    facility_mfl_code = columns.Text(required=True)
+    date_last_updated = columns.DateTime(required=False)
+    dictionary_versions = columns.Text(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
+    deleted_at = columns.DateTime(required=False)
+
+    def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()

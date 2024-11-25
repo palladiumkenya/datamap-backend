@@ -67,25 +67,3 @@ def test_dictionary_config(
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-class UpdateUniversalDataDictionary(BaseModel):
-    universal_dictionary_url: str = Field(..., description="")
-    universal_dictionary_jwt: str = Field(..., description="")
-    universal_dictionary_update_frequency: str = Field(..., description="")
-
-
-# @router.put("/update_dictionary_config")
-# def update_dictionary_config(data: UpdateUniversalDataDictionary):
-#     try:
-#         update = UniversalDictionaryConfig.objects.first()
-#         update.universal_dictionary_url = data.universal_dictionary_url
-#         update.universal_dictionary_jwt = data.universal_dictionary_jwt
-#         update.universal_dictionary_update_frequency = data.universal_dictionary_update_frequency
-#         update.save()
-#
-#         return {"status": "success"}
-#     except UniversalDictionaryConfig.DoesNotExist:
-#         raise HTTPException(status_code=404, detail="Config not found")
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
