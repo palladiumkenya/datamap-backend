@@ -384,3 +384,10 @@ async def refresh_universal_dictionary_token():
         return {"token": new_token}
     else:
         raise HTTPException(status_code=500, detail="No token available")
+
+
+@router.get('/get_facility_pulls')
+async def get_facility_pulls():
+    facility_pulls = UniversalDictionaryFacilityPulls.objects.all()
+    facility_pulls = universal_dictionary_facility_pulls_serializer_list(facility_pulls)
+    return {"success": True, "data": facility_pulls}
