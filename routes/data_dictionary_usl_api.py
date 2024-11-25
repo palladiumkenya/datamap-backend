@@ -15,9 +15,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog, \
-    UniversalDictionaryTokens
+    UniversalDictionaryTokens, UniversalDictionaryFacilityPulls
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
     data_dictionary_change_log_entity, data_dictionary_term_entity, data_dictionary_usl_entity
+from serializers.universal_dictionary_serializer import universal_dictionary_facility_pulls_serializer_list
 
 router = APIRouter()
 
