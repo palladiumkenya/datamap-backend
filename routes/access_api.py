@@ -17,6 +17,11 @@ async def available_connections():
     credentials = access_credential_list_entity(credentials)
     return {'credentials': credentials}
 
+@router.get('/active_connection')
+async def active_connection():
+    credential = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+    return credential
+
 
 class SaveDBConnection(BaseModel):
     conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")

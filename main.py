@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
-from routes import access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api
-from models.models import (AccessCredentials, IndicatorVariables, DataDictionaries, DataDictionaryTerms,
+from routes import access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,usl_data_transmission_api
+from models.models import (AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms,
                            USLConfig, SchedulesConfig, SiteConfig, SchedulesLog, UniversalDictionaryConfig)
 from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
 
@@ -25,7 +25,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     sync_table(AccessCredentials)
-    sync_table(IndicatorVariables)
+    sync_table(MappedVariables)
     sync_table(DataDictionaries)
     sync_table(DataDictionaryTerms)
     sync_table(DataDictionariesUSL)
@@ -35,7 +35,8 @@ async def startup_event():
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
-app.include_router(dictionary_mapper_api.router, tags=['Selector'], prefix='/api/dictionary_mapper')
+app.include_router(dictionary_mapper_api.router, tags=['Mapper'], prefix='/api/dictionary_mapper')
+app.include_router(usl_data_transmission_api.router, tags=['Transmission'], prefix='/api/usl_data')
 app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix='/api/data_dictionary')
 app.include_router(configuration_api.router, tags=['App Configuration'], prefix='/api/config')
 
