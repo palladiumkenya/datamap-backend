@@ -3,6 +3,7 @@ def data_dictionary_entity(dictionary) -> dict:
         "id": str(dictionary["id"]),
         "datasource_id": str(dictionary["datasource_id"]),
         "name": str(dictionary["name"]),
+        "version_number": str(dictionary["version_number"]),
         "is_published": bool(dictionary["is_published"]),
         "created_at": dictionary["created_at"],
         "updated_at": dictionary["updated_at"],
