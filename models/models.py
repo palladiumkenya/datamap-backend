@@ -13,14 +13,17 @@ class AccessCredentials(Model):
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     conn_string = columns.Text(required=True)
     name = columns.Text(required=True)
-    system = columns.Text(required=False)
-    system_version = columns.Text(required=False)
+
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
 
     def save(self):
+        self.updated_at = datetime.utcnow()
+        super().save()
+
+    def update(self):
         self.updated_at = datetime.utcnow()
         super().save()
 
@@ -157,7 +160,7 @@ class SiteConfig(Model):
 
 class USLConfig(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'usl_config'
+    __table_name__ = 'universal_dictionary_config'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     usl_host = columns.Text(required=True)
