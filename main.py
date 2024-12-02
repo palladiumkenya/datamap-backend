@@ -48,7 +48,7 @@ app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix=
 app.include_router(configuration_api.router, tags=['App Configuration'], prefix='/api/config')
 
 app.include_router(data_dictionary_usl_api.router, tags=['USL Data Dictionary'], prefix='/api/usl/data_dictionary')
-app.include_router(user_management.router, prefix="/user", tags=["User Management"])
+app.include_router(user_management.router, prefix="/api/user", tags=["User Management"])
 # TODO: MOVE READ TO ELSEWHERE
 # app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
 
