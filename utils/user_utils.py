@@ -50,3 +50,25 @@ def get_current_user(token: str = Depends(verify_token), db: Session = Depends(g
     if db_user is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
     return db_user
+
+
+def seed_default_user(db: Session):
+    """
+        Seed the database with a default user if none exists.
+        This function checks the database for an existing user. If no user is found, it creates a default user with specified credentials and saves it to the database.
+        Args:
+            db (Session): The database session used to interact with the database.
+        Returns:
+            None
+        """
+    existing_user = db.query(User).first()
+    if not existing_user:
+        default_user = User(
+            email="admin@local.test",
+            username="admin",
+            password=hash_password("Admin123"),
+            is_active=True
+        )
+        db.add(default_user)
+        db.commit()
+        db.refresh(default_user)

@@ -7,8 +7,8 @@ from models.models import (AccessCredentials, MappedVariables, DataDictionaries,
                            USLConfig, SchedulesConfig, SiteConfig, SchedulesLog, UniversalDictionaryConfig)
 from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,
                                UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
-from database.user_db import Base, engine
-
+from database.user_db import Base, engine, SessionLocal
+from utils.user_utils import seed_default_user
 
 app = FastAPI()
 
@@ -27,6 +27,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
+    db = SessionLocal()
+    try:
+        seed_default_user(db)
+    finally:
+        db.close()
+
     sync_table(AccessCredentials)
     sync_table(MappedVariables)
     sync_table(DataDictionaries)
