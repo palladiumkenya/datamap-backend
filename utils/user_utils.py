@@ -58,7 +58,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     payload = verify_token(token, SECRET_KEY)
     email = payload.get("sub")
     if email is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token is invalid")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is invalid")
     db_user = db.query(User).filter(User.email == email).first()
     if db_user is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
