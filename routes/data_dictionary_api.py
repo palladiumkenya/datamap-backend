@@ -2,16 +2,17 @@ import uuid
 from collections import defaultdict
 from uuid import UUID
 
+import requests
 from cassandra.cqlengine.management import sync_table, drop_table
 from cassandra.cqlengine.query import DoesNotExist
 from cassandra.cqlengine import columns, models
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
 
 from database import database
-from models.models import DataDictionaries, DataDictionaryTerms, DataDictionariesUSL, DataDictionaryTermsUSL
-from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity
+from models.models import DataDictionaries, DataDictionaryTerms, UniversalDictionaryConfig
+from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
+    data_dictionary_entity
 
 router = APIRouter()
 
@@ -159,17 +160,6 @@ def delete_data_dictionary_term_usl(term_id: str):
     return {"message": "Data dictionary term deleted successfully"}
 
 
-@router.delete("/delete_data_dictionary_usl/{dict_id}")
-def delete_data_dictionary_usl(dict_id: str):
-    DataDictionariesUSL.objects(id=UUID(dict_id)).delete()
-
-    terms = DataDictionaryTermsUSL.objects(dictionary_id=dict_id)
-    for term in terms:
-        term.delete()
-
-    return {"message": "Data dictionary term deleted successfully"}
-
-
 # Datamap dictionary management apis
 @router.get("/data_dictionary_terms")
 async def data_dictionary_terms():
@@ -213,26 +203,35 @@ async def data_dictionaries():
     return response_terms
 
 
-def sync_dictionaries(datasource_id: str) -> dict:
-    usl_dicts = DataDictionariesUSL.objects().all()
+def sync_dictionaries(datasource_id: str, usl_dicts: list) -> dict:
     dict_id_map = {}
     active_dicts = set()
 
     for usl_dict in usl_dicts:
-        active_dicts.add(usl_dict.name)
-        existing_dict = DataDictionaries.objects().filter(name=usl_dict.name).allow_filtering().first()
+        active_dicts.add(usl_dict['dictionary']['name'])
+        dictionary = usl_dict['dictionary']
+
+        existing_dict = DataDictionaries.objects().filter(name=dictionary['name']).allow_filtering().first()
         if not existing_dict:
             new_dict = DataDictionaries(
-                name=usl_dict.name,
-                is_published=usl_dict.is_published,
+                name=dictionary['name'],
+                is_published=dictionary['is_published'],
+                version_number=dictionary['version_number'],
                 datasource_id=datasource_id
             )
             new_dict.save()
-            dict_id_map[usl_dict.name] = new_dict.id
+            for term in usl_dict['dictionary_terms']:
+                term['dictionary_id'] = new_dict.id
+
         else:
-            existing_dict.is_published = usl_dict.is_published
+            existing_dict.is_published = dictionary['is_published']
+            existing_dict.version_number = dictionary['version_number']
             existing_dict.save()
-            dict_id_map[usl_dict.name] = existing_dict.id
+
+            dict_id_map[dictionary['name']] = existing_dict.id
+            for term in usl_dict['dictionary_terms']:
+                term['dictionary_id'] = existing_dict.id
+        sync_terms(usl_dict['dictionary_terms'])
     # Deactivate dictionaries that are no longer present in usl_dicts
     existing_dicts = DataDictionaries.objects().filter(datasource_id=datasource_id).allow_filtering()
     for existing_dict in existing_dicts:
@@ -242,38 +241,41 @@ def sync_dictionaries(datasource_id: str) -> dict:
     return dict_id_map
 
 
-def sync_terms(dict_id_map: dict):
-    usl_terms = DataDictionaryTermsUSL.objects().all()
-    active_terms = set()
+def sync_terms(terms):
 
-    for usl_term in usl_terms:
-        dictionary_id = dict_id_map.get(usl_term.dictionary)
+    active_terms = set()
+    dictionaries = []
+
+    for usl_term in terms:
+        dictionary_id = str(usl_term['dictionary_id'])
+        dictionaries.append(dictionary_id)
+
         if dictionary_id:
-            active_terms.add((usl_term.dictionary, usl_term.term))
-            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term.dictionary,
-                                                                 term=usl_term.term).allow_filtering().first()
+            active_terms.add((usl_term['dictionary'], usl_term['term']))
+            existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term['dictionary'],
+                                                                 term=usl_term['term']).allow_filtering().first()
             if not existing_term:
                 new_term = DataDictionaryTerms(
-                    dictionary=usl_term.dictionary,
+                    dictionary=usl_term['dictionary'],
                     dictionary_id=dictionary_id,
-                    term=usl_term.term,
-                    data_type=usl_term.data_type,
-                    is_required=usl_term.is_required,
-                    term_description=usl_term.term_description,
-                    expected_values=usl_term.expected_values,
-                    is_active=usl_term.is_active
+                    term=usl_term['term'],
+                    data_type=usl_term['data_type'],
+                    is_required=usl_term['is_required'],
+                    term_description=usl_term['term_description'],
+                    expected_values=usl_term['expected_values'],
+                    is_active=usl_term['is_active']
                 )
                 new_term.save()
             else:
-                existing_term.data_type = usl_term.data_type
-                existing_term.is_required = usl_term.is_required
-                existing_term.term_description = usl_term.term_description
-                existing_term.expected_values = usl_term.expected_values
-                existing_term.is_active = usl_term.is_active
+                existing_term.data_type = usl_term['data_type']
+                existing_term.is_required = usl_term['is_required']
+                existing_term.term_description = usl_term['term_description']
+                existing_term.expected_values = usl_term['expected_values']
+                existing_term.is_active = usl_term['is_active']
                 existing_term.save()
 
     # Deactivate terms that are no longer present in usl_terms
-    existing_terms = DataDictionaryTerms.objects().filter(dictionary_id__in=list(dict_id_map.values())).allow_filtering()
+    existing_terms = DataDictionaryTerms.objects().filter(dictionary_id__in=dictionaries).allow_filtering()
     for existing_term in existing_terms:
         if (existing_term.dictionary, existing_term.term) not in active_terms:
             DataDictionaryTerms.objects(id=existing_term.id).first().delete()
@@ -341,9 +343,67 @@ def create_tables():
         sync_table(dynamic_table)
 
 
+def pull_dict_from_universal(universal_dict_config):
+    """
+    Pull data dictionary from universal dictionary via api
+    :param universal_dict_config: api config for universal dictionary
+    :return: data dictionary
+    """
+    headers = {"Authorization": f"Bearer {universal_dict_config.universal_dictionary_jwt}"}
+    response = requests.get(universal_dict_config.universal_dictionary_url, headers=headers)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.json())
+    return response.json()
+
+
 @router.get("/sync_all/{datasource_id}")
 def sync_all(datasource_id: str, background_tasks: BackgroundTasks):
-    dict_id_map = sync_dictionaries(datasource_id)
-    sync_terms(dict_id_map)
-    background_tasks.add_task(create_tables)
-    return {"message": "All data synced successfully"}
+    universal_dict_config = UniversalDictionaryConfig.objects.first()
+    if universal_dict_config is not None:
+        response = pull_dict_from_universal(universal_dict_config)
+        dict_map = sync_dictionaries(datasource_id, response.get("data"))
+        background_tasks.add_task(create_tables)
+        return {"message": "All data synced successfully", "data": dict_map}
+    else:
+        return {"message": "Please add a valid Universal Dictionary Configuration first"}
+
+
+@router.get("/dictionary_version_notification")
+def dictionary_version_notification():
+    universal_dict_config = UniversalDictionaryConfig.objects.first()
+    if universal_dict_config is not None:
+        response = pull_dict_from_universal(universal_dict_config)
+
+        to_update = False
+        to_update_count = 0
+        existing_dictionaries = []
+        for universal_dict in response.get("data"):
+            dictionary = DataDictionaries.objects.filter(name=universal_dict["dictionary"]["name"]).first()
+            existing_dictionaries.append(dictionary.id)
+            if dictionary is not None:
+                dictionary = data_dictionary_entity(dictionary)
+                if (
+                        universal_dict["dictionary"]["version_number"] != dictionary["version_number"]
+                        or universal_dict["dictionary"]["is_published"] != dictionary["is_published"]
+                ):
+                    to_update = True
+                    to_update_count += 1
+            else:
+                if universal_dict["dictionary"]["is_published"]:
+                    to_update = True
+                    to_update_count += 1
+
+        # get changes to dictionaries that no longer exist
+        deleted_dictionaries = DataDictionaries.objects.all()
+        filtered_dicts = [obj for obj in deleted_dictionaries if obj.id not in existing_dictionaries]
+        if len(filtered_dicts) > 0:
+            to_update = True
+            to_update_count += len(filtered_dicts)
+
+        return {
+            "message": f"You have {to_update_count} pending updates to your data dictionary.",
+            "to_update": to_update
+        }
+    else:
+        return {"message": "Please add a valid Universal Dictionary Configuration first"}

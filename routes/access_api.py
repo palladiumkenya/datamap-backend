@@ -18,33 +18,47 @@ async def available_connections():
     return {'credentials': credentials}
 
 
+@router.get('/active_connection')
+async def active_connection():
+    return (
+        AccessCredentials.objects()
+        .filter(is_active=True)
+        .allow_filtering()
+        .first()
+    )
+
+
 class SaveDBConnection(BaseModel):
     conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
-    system: str = Field(..., description="Database host & port")
-    version: str = Field(..., description="Database name")
     name: str = Field(..., description="Database username")
 
 
 @router.post('/add_connection')
 async def add_connection(data: SaveDBConnection):
     try:
-        credential = AccessCredentials.create(conn_string=data.conn_string, system_version=data.version, system=data.system, name=data.name)
+        AccessCredentials.create(conn_string=data.conn_string, name=data.name)
         return {'success': True, 'message': 'Connection added successfully'}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=e)
+        raise HTTPException(status_code=500, detail=e) from e
 
 
 @router.delete('/delete_connection/{connection_id}')
 async def delete_connection(connection_id: str):
-    credential = AccessCredentials.objects(id=connection_id).delete()
-    return credential
+    return AccessCredentials.objects(id=connection_id).delete()
 
 
-@router.put('/update_connection')
-async def update_connection(_id: str, conn_string: str):
-    credential = AccessCredentials.objects(id=_id).update(conn_string=conn_string)
-    # credential = credential
-    return credential
+@router.get('/get_connection/{connection_id}')
+async def get_connection(connection_id: str):
+    return AccessCredentials.objects(id=connection_id).first()
+
+
+@router.put('/update_connection/{connection_id}')
+async def update_connection(data: SaveDBConnection, connection_id: str):
+    AccessCredentials.objects(id=connection_id).update(
+        conn_string=data.conn_string,
+        name=data.name
+    )
+    return {"message": "Connection updated successfully", "id": connection_id}
 
 
 def test_db(db_url):
@@ -53,9 +67,7 @@ def test_db(db_url):
         conn = engine.connect()
         conn.close()
         return True, None
-    except OperationalError as e:
-        return False, str(e)
-    except Exception as e:
+    except (OperationalError, Exception) as e:
         return False, str(e)
 
 

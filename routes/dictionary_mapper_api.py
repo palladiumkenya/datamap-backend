@@ -1,24 +1,21 @@
 from fastapi import  Depends, HTTPException
-
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
-
+from cassandra.query import BatchStatement
+import datetime
 import json
 from fastapi import APIRouter
 from typing import List
-import pandas as pd
-import requests
-from openpyxl import load_workbook
-from io import BytesIO
+
 import logging
 
-
-from models.models import AccessCredentials,IndicatorVariables
+import settings
+from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
 from database import database
-from serializers.dictionary_mapper_serializer import indicator_selector_list_entity,indicator_list_entity
-from serializers.access_credentials_serializer import access_credential_list_entity
+from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
+from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
+from settings import settings
 
 
 log = logging.getLogger()
@@ -36,27 +33,31 @@ router = APIRouter()
 # # Create an inspector object to inspect the database
 engine = None
 inspector = None
-
+metadata = None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def createEngine():
     global engine, inspector, metadata
+    log.info('===== start creating an engine =====')
+
     try:
-        credentials = AccessCredentials.objects().all()
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials:
-            credentials = access_credential_list_entity(credentials)
+            # credentials = access_credential_list_entity(credentials)
             connection_string = credentials
             # engine = create_engine(connection_string[0]["conn_string"])
-            engine = create_engine(connection_string[0]["conn_string"])
+            engine = create_engine(connection_string["conn_string"])
 
             inspector = inspect(engine)
             metadata = MetaData()
             metadata.reflect(bind=engine)
+            log.info('===== Database reflected ====')
 
     except SQLAlchemyError as e:
         # Log the error or handle it as needed
-        raise HTTPException(status_code=500, detail="Database connection error")
+        log.error('===== Database not reflected ==== ERROR:', str(e))
+        raise HTTPException(status_code=500, detail="Database connection error"+str(e))
 
 
 def get_db():
@@ -71,73 +72,45 @@ async def startup_event():
     createEngine()
     if engine:
         SessionLocal.configure(bind=engine)
-    else:
-        raise HTTPException(status_code=500, detail="Failed to initialize database engine")
+    # else:
+    #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
+
 
 
 @router.get('/base_schemas')
 async def base_schemas():
-
-    # Check if download was successful
     try:
-
-        wb = load_workbook('configs/data_dictionary/dictionary.xlsx')
-        sheets = wb.sheetnames
-        print('sheets ', sheets)
-        cass_session = database.cassandra_session_factory()
-
-        schemas = []
-
-        for schema in sheets:
-            print('schema --> ', schema)
-
-            df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=schema)
-            base_variables = []
-            for i in range(0, df.shape[0]):
-                query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], schema)
-                # results = database.execute_query(query)
-                rows= cass_session.execute(query)
-                results = []
-                for row in rows:
-                    results.append(row)
-                matchedVariable = False if not results else True
-
-                base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
-
-            baseSchemaObj = {}
-            baseSchemaObj["schema"] = schema
-            baseSchemaObj["base_variables"] = base_variables
-
-            schemas.append(baseSchemaObj)
+        schemas = DataDictionaries.objects().all()
+        schemas =data_dictionary_list_entity(schemas)
         return schemas
     except Exception as e:
         log.error('System ran into an error --> ', e)
         return e
 
 
-
-@router.get('/base_schema_variables/{base_lookup}')
-async def base_variables(base_lookup: str):
+@router.get('/base_schema_variables/{baselookup}')
+async def base_schema_variables(baselookup: str):
     try:
-
-        cass_session = database.cassandra_session_factory()
+        dictionary = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
+        dictionary = data_dictionary_terms_list_entity(dictionary)
 
         schemas = []
 
-        df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
         base_variables = []
-        for i in range(0, df.shape[0]):
-            query = "SELECT * FROM indicator_variables WHERE base_variable_mapped_to='%s' and base_repository='%s' ALLOW FILTERING;"%(df['Column/Variable Name'][i], base_lookup)
-            rows= cass_session.execute(query)
+        for i in dictionary:
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup).allow_filtering()
+
+            configs = mapped_variable_list_entity(configs)
+
             results = []
-            for row in rows:
+            for row in configs:
                 results.append(row)
             matchedVariable = False if not results else True
 
-            base_variables.append({'variable':df['Column/Variable Name'][i], 'matched':matchedVariable})
+            base_variables.append({'variable':i['term'], 'matched':matchedVariable})
 
         baseSchemaObj = {}
-        baseSchemaObj["schema"] = base_lookup
+        baseSchemaObj["schema"] = baselookup
         baseSchemaObj["base_variables"] = base_variables
 
         schemas.append(baseSchemaObj)
@@ -148,98 +121,109 @@ async def base_variables(base_lookup: str):
 
 
 @router.get('/base_variables/{base_lookup}')
-async def base_variables(base_lookup: str):
+async def base_variables_lookup(base_lookup: str):
 
     try:
-        df = pd.read_excel('configs/data_dictionary/dictionary.xlsx', sheet_name=base_lookup)
 
+        dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=base_lookup).all()
         base_variables = []
-        for i in range(0, df.shape[0]):
-            base_variables.append(df['Column/Variable Name'][i])
+        for term in dictionary_terms:
+            base_variables.append(term.term)
+
         return base_variables
     except Exception as e:
         log.error('System ran into an error fetching base_variables --->', e)
         return e
 
 
+@router.get('/get_database_columns')
+async def get_database_columns():
+    if metadata:
+        try:
+            dbTablesAndColumns={}
+
+            table_names = metadata.tables.keys()
+
+            for table_name in table_names:
+                # Load the table schema from MetaData
+                table = Table(table_name, metadata, autoload_with=engine)
+
+                getcolumnnames = []
+                # add epmty string as part of options
+                getcolumnnames.append({"name": "", "type": "-"})
+                for column in table.columns:
+                    getcolumnnames.append({"name": column.name, "type": str(column.type)})
+
+                dbTablesAndColumns[table_name] = getcolumnnames
+
+            return dbTablesAndColumns
+        except SQLAlchemyError as e:
+            log.error('Error reflecting database: --->', e)
+    else:
+        log.error('Error reflecting source database: --->')
+        raise HTTPException(status_code=500, detail='Error reflecting source database')
 
 
-
-@router.get('/getDatabaseColumns')
-async def getDatabaseColumns():
+@router.post('/add_mapped_variables/{baselookup}')
+async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
-        dbTablesAndColumns={}
-
-        table_names = metadata.tables.keys()
-
-        for table_name in table_names:
-
-            columns = inspector.get_columns(table_name)
-
-            getcolumnnames = []
-            for column in columns:
-                getcolumnnames.append(column['name'])
-
-            dbTablesAndColumns[table_name] = getcolumnnames
-        # credential = credential
-        # print("dbTablesAndColumns =======>",dbTablesAndColumns)
-        return dbTablesAndColumns
-    except SQLAlchemyError as e:
-        log.error('Error reflecting database: --->', e)
-
-
-
-@router.post('/add_mapped_variables')
-async def add_mapped_variables(variables:List[object]):
-    try:
+        #delete existing configs for base repo
+        MappedVariables.objects(base_repository=baselookup).delete()
         for variableSet in variables:
-            IndicatorVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
+            MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
-                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"])
+                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"], join_by=variableSet["join_by"])
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
 
 
-@router.get('/tx_curr_variables')
-async def available_connections():
-    variables = IndicatorVariables.objects().all()
-    variables = indicator_selector_list_entity(variables)
-
-    # print(credentials)
-    return {'variables': variables}
-
-
-
-@router.get('/generate_config')
-async def generate_config(baseSchema:str):
-    access_cred = AccessCredentials.objects().all()
-    access_cred = access_credential_list_entity(access_cred)
-
-    config = IndicatorVariables.objects().all()
-    config = indicator_selector_list_entity(config)
-    with open('configs/schemas/'+baseSchema +'.conf', 'w') as f:
-        f.write(str(config))
-
-    return 'success'
-
-
-
-@router.get('/import_config')
-async def import_config(baseSchema:str):
+@router.get('/generate_config/{baselookup}')
+async def generate_config(baselookup:str):
     try:
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
 
-        f = open('configs/schemas/'+baseSchema +'.conf', 'r')
+        results = []
+        for row in configs:
+            results.append(row)
+
+        with open('configs/schemas/'+baselookup +'.conf', 'w') as f:
+            f.write(str(results))
+
+        log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
+        return 'success'
+    except Exception as e:
+        log.error("Error generating config ==> %s", str(e))
+
+        return e
+
+
+
+
+@router.get('/import_config/{baselookup}')
+async def import_config(baselookup:str):
+    try:
+        # delete existing configs for base repo
+        cass_session = database.cassandra_session_factory()
+
+        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
+        existingVariables = cass_session.execute(query)
+
+        for var in existingVariables:
+            MappedVariables.objects(id=var["id"]).delete()
+
+        f = open('configs/schemas/'+baselookup +'.conf', 'r')
 
         configImportStatements = f.read()
         configs = json.loads(configImportStatements.replace("'", '"'))
         for conf in configs:
-            IndicatorVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
+            MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
-                                      base_variable_mapped_to=conf["base_variable_mapped_to"])
+                                      base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
 
         f.close()
-        log.info("========= Successfully imported config ==========")
+        log.info("+++++++++ Successfully imported config ++++++++++")
 
         return 'success'
     except Exception as e:
@@ -251,49 +235,106 @@ async def import_config(baseSchema:str):
 # @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup:str):
     try:
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
 
-        cass_session = database.cassandra_session_factory()
-
-        query = "SELECT * FROM indicator_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
-        configs = cass_session.execute(query)
+        primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
+        primaryTableDetails = mapped_variable_list_entity(primaryTable)
 
         mapped_columns = []
         mapped_joins = []
 
         for conf in configs:
-            mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
-            if all(conf["tablename"]+"." not in s for s in mapped_joins):
-
-                mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + "etl_patient_demographics.patient_id = " + conf["tablename"].strip() +".patient_id ")
+            if conf["base_variable_mapped_to"] != 'PrimaryTableId':
+                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
+                if all(conf["tablename"]+"." not in s for s in mapped_joins):
+                    if conf["tablename"] != primaryTableDetails['tablename']:
+                        mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
+                        " = " + conf["tablename"].strip() + "." + conf["join_by"].strip())
 
         columns = ", ".join(mapped_columns)
         joins = ", ".join(mapped_joins)
 
-        query = f"SELECT uuid() as id, {columns} from etl_patient_demographics {joins.replace(',','')} limit 100"
 
-        log.info("========= Successfully generated query ==========")
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
 
+        log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
-        log.error("Error importing config ==> %s", str(e))
+        log.error("Error generating query. ERROR: ==> %s", str(e))
 
         return e
+
+def convert_none_to_null(data):
+    if isinstance(data, dict):
+        return {k: convert_none_to_null(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_none_to_null(item) for item in data]
+    elif data is None:
+        return None # This will be converted to null in JSON
+    else:
+        return data
+
+def convert_datetime_to_iso(data):
+    if isinstance(data, dict):
+        return {k: convert_datetime_to_iso(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_datetime_to_iso(item) for item in data]
+    elif isinstance(data, datetime.date):
+        return data.isoformat()
+    else:
+        return data
 
 
 @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
     try:
+
         query = text(generate_query(baselookup))
-        # query=text("select uuid() as id, hiv.*    from etl_hiv_enrollment hiv ")
+
+        cass_session = database.cassandra_session_factory()
 
         with db_session as session:
             result = session.execute(query)
+            print("result --->", result)
 
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+            print("baseRepoLoaded --->", baseRepoLoaded)
 
+            processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            print("processed_results --->", processed_results)
+            # rows = []
+            # Create a batch statement
+            batch = BatchStatement()
+            cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
+            for data in processed_results:
+
+                rowvalues = data.values()
+
+                quoted_values = [
+                    'NULL' if value is None
+                    else f"'{value}'" if isinstance(value, str)
+                    else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+                    else str(value)
+                    for value in rowvalues
+                ]
+
+                query = f"""
+                           INSERT INTO {baselookup} (client_repository_id, {", ".join(tuple(data.keys()))})
+                           VALUES (uuid(), {', '.join(quoted_values)})
+                       """
+                # insert_resords = cass_session.prepare(query)
+                cass_session.execute(query)
+                # Add multiple insert statements to the batch
+                # batch.add(query)
+            # cass_session.execute(batch)
+
+            # end batch
+            cass_session.cluster.shutdown()
             return baseRepoLoaded
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
 
         return e
+

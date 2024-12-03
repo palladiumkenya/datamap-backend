@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  datamap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: datamap-backend
+    ports:
+      - "4142:4142"
+    environment:
+      - TZ=Africa/Nairobi
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 4142
+    networks:
+      - datamap-network
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    restart: always
+
+
+  cassandra:
+    image: cassandra:latest
+    container_name: datamap-cassandra
+    ports:
+      - "9042:9042"
+    env_file:
+      - .env-cassandra
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    networks:
+      - datamap-network
+    healthcheck:
+      test: [ "CMD-SHELL", "nodetool status | grep -q 'UN'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+volumes:
+  cassandra-data:
+
+networks:
+  datamap-network:
+    name: datamap-network
+    driver: bridge
