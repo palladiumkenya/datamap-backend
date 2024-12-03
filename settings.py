@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     STAGING_API: str
     BATCH_SIZE: int
     JWT_SECRET_KEY: str
+    REFRESH_SECRET_KEY: str
     # REPORTING_DB: str
     # REPORTING_USER: str
     # REPORTING_PASSWORD: str
