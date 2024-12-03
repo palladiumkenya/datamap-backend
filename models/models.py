@@ -86,10 +86,14 @@ class TransmissionHistory(Model):
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     usl_repository_name = columns.Text(required=True)
+    facility = columns.Text(required=True)
+    action = columns.Text(required=True)
     source_system_id = columns.UUID(required=True)
+    source_system_name = columns.Text(required=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     started_at = columns.DateTime(required=True, default=datetime.utcnow())
     ended_at = columns.DateTime(required=False)
+    manifest_id = columns.UUID(default=uuid.uuid1)
 
     def save(self):
         self.started_at = datetime.utcnow()

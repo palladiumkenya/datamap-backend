@@ -4,6 +4,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
+from datetime import datetime
+
 import json
 from fastapi import APIRouter
 from typing import List
@@ -11,7 +13,7 @@ from typing import List
 import logging
 
 import settings
-from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
+from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,TransmissionHistory
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
@@ -124,13 +126,12 @@ async def base_schema_variables(baselookup: str):
 async def base_variables_lookup(base_lookup: str):
 
     try:
-
         dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=base_lookup).all()
         base_variables = []
         for term in dictionary_terms:
-            base_variables.append(term.term)
+            base_variables.append({"term":term.term, "datatype":term.data_type})
 
-        return base_variables
+        return {"data":base_variables}
     except Exception as e:
         log.error('System ran into an error fetching base_variables --->', e)
         return e
@@ -255,8 +256,8 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
-        print("query generated -->",query)
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 3 "
+
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
@@ -288,10 +289,19 @@ def convert_datetime_to_iso(data):
 @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
     try:
-
         query = text(generate_query(baselookup))
 
         cass_session = database.cassandra_session_factory()
+
+        # started loading
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+        loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
+                            facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
+                            source_system_id=source_system['id'],
+                            source_system_name=source_system['system'],
+                            ended_at=None,
+                            manifest_id=None).save()
 
         with db_session as session:
             result = session.execute(query)
@@ -300,8 +310,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
             processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
-            # rows = []
-            # Create a batch statement
+
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
@@ -328,6 +337,12 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
             # end batch
             cass_session.cluster.shutdown()
+
+            # ended loading
+            # loadedHistory.ended_at=datetime.utcnow()
+            # loadedHistory.save()
+            # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
+
             return baseRepoLoaded
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))

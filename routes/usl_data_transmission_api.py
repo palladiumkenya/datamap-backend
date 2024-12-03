@@ -11,6 +11,7 @@ import settings
 from database import database
 from serializers.access_credentials_serializer import access_credential_list_entity
 from settings import settings
+from models.models import SiteConfig,TransmissionHistory
 
 
 
@@ -38,15 +39,28 @@ async def extracted_data(baselookup:str):
         query = f"""
                    SELECT * FROM {baselookup}
                """
-        baseRepoData = cass_session.execute(query)
-
-        cass_session.cluster.shutdown()
-        return baseRepoData
+        results = cass_session.execute(query)
+        baseRepoData = [row for row in results]
+        # cass_session.cluster.shutdown()
+        return {"data":baseRepoData}
     except Exception as e:
         log.error("Error fetching extracted data ==> %s", str(e))
 
         return e
 
+
+
+@router.get('/transmission/history')
+async def history():
+    try:
+        results = TransmissionHistory.objects.all()
+
+        history = [row for row in results]
+        return {"data":history}
+    except Exception as e:
+        log.error("Error fetching history data ==> %s", str(e))
+
+        return e
 
 
 @router.get('/manifest/repository/{baselookup}')
@@ -66,6 +80,7 @@ async def manifest(baselookup:str):
         columns = cass_session.execute(columns_query)
 
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
 
         new_manifest = uuid.uuid1()
         manifest = {
@@ -77,12 +92,18 @@ async def manifest(baselookup:str):
             "source_system_name": source_system['system'],
             "source_system_version": source_system['system_version'],
             "opendive_version": "1.0.0",
-            "facility": "BOMU facility"
+            "facility": site_config["site_code"]
         }
 
         cass_session.cluster.shutdown()
         log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++")
 
+        TransmissionHistory(usl_repository_name = baselookup, action="Sending",
+                        facility = f'{site_config["site_name"]}-{site_config["site_code"]}',
+                        source_system_id = source_system['id'],
+                        source_system_name = source_system['system'],
+                        ended_at = None,
+                        manifest_id =new_manifest).save()
         return manifest
     except Exception as e:
         log.error("Error sending data ==> %s", str(e))
@@ -128,12 +149,14 @@ async def send_progress(baselookup: str, manifest:object, websocket: WebSocket):
             # print('staging to send ', settings.STAGING_API+baselookup)
             log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
 
+            site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+
             data = {
                     "manifest_id":manifest["manifest_id"],
                     "batch_no": batch,
                     "total_batches": total_batches,
-                    "facility": "BOMU facility",
-                    "facility_id": "BOMU facility",
+                    "facility": site_config["site_name"],
+                    "facility_id": site_config["site_code"],
                     "data": baseRepoLoaded
                     }
 

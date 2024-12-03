@@ -8,7 +8,7 @@ from serializers.site_config_serializer import site_config_serializer_entity, si
 router = APIRouter()
 
 
-@router.get("/get_site_configs")
+@router.get("/site_configs")
 def get_site_configs():
     try:
         configs = SiteConfig.objects.all()
@@ -24,7 +24,7 @@ def get_site_configs():
 
 
 
-@router.get("/get_active_site_config")
+@router.get("/active_site_config")
 def get_active_site_config():
     try:
         config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
@@ -46,7 +46,7 @@ class SaveSiteConfig(BaseModel):
     is_active: bool = Field(..., description="")
 
 
-@router.post("/add_site_config")
+@router.post("/add/config")
 def add_site_config(data: SaveSiteConfig):
     try:
         if data.is_active:
@@ -70,7 +70,7 @@ def add_site_config(data: SaveSiteConfig):
 
 
 
-@router.put("/edit_site_config")
+@router.put("/edit/config")
 def edit_site_config(data: SaveSiteConfig):
     try:
         if data.is_active:
@@ -94,7 +94,7 @@ def edit_site_config(data: SaveSiteConfig):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/delete_site_config/{config_id}")
+@router.delete("/delete/config/{config_id}")
 def delete_site_config(config_id: str):
     try:
         site_config = SiteConfig.objects(id=config_id).delete()
