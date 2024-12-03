@@ -7,7 +7,7 @@ from models.models import (AccessCredentials, MappedVariables, DataDictionaries,
                            USLConfig, SchedulesConfig, SiteConfig, SchedulesLog, UniversalDictionaryConfig)
 from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,
                                UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
-from database.user_db import Base, engine, SessionLocal
+from database.user_db import UserBase, user_engine, SessionLocal
 from utils.user_utils import seed_default_user
 
 app = FastAPI()
@@ -44,7 +44,7 @@ async def startup_event():
     sync_table(UniversalDictionaryFacilityPulls)
     sync_table(UniversalDictionaryTokens)
 
-Base.metadata.create_all(bind=engine)
+UserBase.metadata.create_all(bind=user_engine)
 
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
