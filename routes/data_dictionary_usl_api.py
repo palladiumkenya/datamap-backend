@@ -1,4 +1,9 @@
 import json
+import re
+import secrets
+import time
+
+import jwt
 import exrex
 from collections import defaultdict
 from datetime import datetime
@@ -9,9 +14,11 @@ from cassandra.cqlengine.query import DoesNotExist
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
+from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog, \
+    UniversalDictionaryTokens, UniversalDictionaryFacilityPulls
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
     data_dictionary_change_log_entity, data_dictionary_term_entity, data_dictionary_usl_entity
+from serializers.universal_dictionary_serializer import universal_dictionary_facility_pulls_serializer_list
 
 router = APIRouter()
 
@@ -23,7 +30,6 @@ async def data_dictionary_terms_usl():
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
     for term in response_terms:
-        # term["values_examples"] = irregular_express(term["expected_values"])
         grouped_terms[term['dictionary']].append(term)
     # dictionary_data.append({"name": dictionary.name, "dictionary_terms": response_terms})
     formatted_terms = [{"name": dictionary_name, "dictionary_terms": terms} for dictionary_name, terms in
@@ -240,6 +246,20 @@ def delete_data_dictionary_term_usl(term_id: str):
     return {"message": "Data dictionary term deleted successfully"}
 
 
+@router.delete("/delete_data_dictionary_usl/{dict_id}")
+def delete_data_dictionary_usl(dict_id: str):
+    dictionary = DataDictionariesUSL.objects(id=UUID(dict_id)).first()
+    if not dictionary:
+        raise HTTPException(status_code=404, detail="Data dictionary term not found")
+
+    terms = DataDictionaryTermsUSL.objects(dictionary_id=str(dictionary.id)).all()
+    for term in terms:
+        term.delete()
+    dictionary.delete()
+
+    return {"message": "Data dictionary deleted successfully"}
+
+
 def log_dictionary_change(dictionary_id, term_id, operation, old_value=None, new_value=None, version_number=None):
 
     change_log = DictionaryChangeLog(
@@ -303,3 +323,71 @@ def get_universal_dictionaries():
         return {"data": formatted_terms, "detail": "Connection successful"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PublishUniversalDictionary(BaseModel):
+    id: str = Field(..., description="ID for dictionary to update")
+
+
+@router.post("/publish/universal_dictionary")
+async def publish_universal_dictionary(data: PublishUniversalDictionary):
+    dictionary = DataDictionariesUSL.objects.filter(id=data.id).first()
+    if dictionary:
+        dictionary.is_published = not dictionary.is_published
+        dictionary.save()
+        return dictionary
+    else:
+        raise HTTPException(status_code=404, detail="Dictionary Not Found")
+
+
+@router.get("/universal_dictionary/token")
+def get_universal_dictionary_token():
+    token = UniversalDictionaryTokens.objects.first()
+    if token is not None:
+        return {"token": token.universal_dictionary_token}
+    else:
+        payload = {
+            "iss": "datamap.app",
+            "sub": "universal_dictionary",
+            "isBot": True,
+            "tokenType": "BOT",
+            "iat": int(time.time()),
+            "exp": None
+        }
+        secret = secrets.token_hex(32)
+        new_token = jwt.encode(payload, secret, algorithm="HS256")
+        UniversalDictionaryTokens(
+            universal_dictionary_token=new_token,
+            secret=secret
+        ).save()
+        return {"token": new_token}
+
+
+@router.post("/refresh_universal_dictionary/token")
+async def refresh_universal_dictionary_token():
+    payload = {
+        "iss": "datamap.app",
+        "sub": "universal_dictionary",
+        "isBot": True,
+        "tokenType": "BOT",
+        "iat": int(time.time()),
+        "exp": None
+    }
+    secret = secrets.token_hex(32)
+    new_token = jwt.encode(payload, secret, algorithm="HS256")
+    token = UniversalDictionaryTokens.objects.first()
+
+    if token is not None:
+        token.universal_dictionary_token = new_token
+        token.secret = secret
+        token.save()
+        return {"token": new_token}
+    else:
+        raise HTTPException(status_code=500, detail="No token available")
+
+
+@router.get('/get_facility_pulls')
+async def get_facility_pulls():
+    facility_pulls = UniversalDictionaryFacilityPulls.objects.all()
+    facility_pulls = universal_dictionary_facility_pulls_serializer_list(facility_pulls)
+    return {"success": True, "data": facility_pulls}

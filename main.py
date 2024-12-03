@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
-from routes import access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, \
-    configuration_api,usl_data_transmission_api,site_configuration_api
+from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
+                    usl_data_transmission_api, site_configuration_api,user_management)
 from models.models import (AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms,
-                           USLConfig, SchedulesConfig, SiteConfig, SchedulesLog, UniversalDictionaryConfig,TransmissionHistory)
-from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog
-
+                           USLConfig, SchedulesConfig, SiteConfig, TransmissionHistory, SchedulesLog, UniversalDictionaryConfig)
+from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,
+                               UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
+from database.user_db import Base, engine, SessionLocal
+from utils.user_utils import seed_default_user
 
 app = FastAPI()
 
@@ -25,6 +27,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
+    db = SessionLocal()
+    try:
+        seed_default_user(db)
+    finally:
+        db.close()
+
     sync_table(AccessCredentials)
     sync_table(MappedVariables)
     sync_table(DataDictionaries)
@@ -33,9 +41,12 @@ async def startup_event():
     sync_table(DataDictionaryTermsUSL)
     sync_table(DictionaryChangeLog)
     sync_table(UniversalDictionaryConfig)
+    sync_table(UniversalDictionaryFacilityPulls)
+    sync_table(UniversalDictionaryTokens)
     sync_table(SiteConfig)
     sync_table(TransmissionHistory)
 
+Base.metadata.create_all(bind=engine)
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
 app.include_router(dictionary_mapper_api.router, tags=['Mapper'], prefix='/api/dictionary_mapper')
