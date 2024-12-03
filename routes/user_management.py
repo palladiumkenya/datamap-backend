@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from database.user_db import get_db
+from database.user_db import get_user_db
 from models.user_model import User
 from schemas.user_schema import UserResponse, UserCreate
 from utils.user_utils import hash_password, verify_password, create_access_token, get_current_user
@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(user: UserCreate, db: Session = Depends(get_db)):
+async def register(user: UserCreate, db: Session = Depends(get_user_db)):
     db_email = db.query(User).filter(User.email == user.email).first()
     db_username = db.query(User).filter(User.username == user.username).first()
     if db_email:
@@ -30,7 +30,7 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def user_login(email: str, password: str, db: Session = Depends(get_db)):
+async def user_login(email: str, password: str, db: Session = Depends(get_user_db)):
     db_user = db.query(User).filter(User.email == email).first()
     if not db_user or not verify_password(password, db_user.password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")

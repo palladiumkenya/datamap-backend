@@ -5,13 +5,14 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from database.user_db import get_db
+from database.user_db import get_user_db
 from models.user_model import User
 from settings import settings
 
 SECRET_KEY = settings.JWT_SECRET_KEY
 ALGORITHM = 'HS256'
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # One day
+
 
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
@@ -42,7 +43,7 @@ def verify_token(token: str):
         ) from e
 
 
-def get_current_user(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+def get_current_user(token: str = Depends(verify_token), db: Session = Depends(get_user_db)):
     email = token.sub("sub")
     if email is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token is invalid")
