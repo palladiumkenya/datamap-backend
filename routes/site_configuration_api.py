@@ -8,7 +8,7 @@ from serializers.site_config_serializer import site_config_serializer_entity, si
 router = APIRouter()
 
 
-@router.get("/site_configs")
+@router.get("/all/configs")
 def get_site_configs():
     try:
         configs = SiteConfig.objects.all()
