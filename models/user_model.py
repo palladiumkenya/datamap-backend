@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
 
-from database.user_db import Base
+from database.user_db import UserBase
 
-metadata = Base.metadata
+metadata = UserBase.metadata
 
 
-class User(Base):
+class User(UserBase):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
