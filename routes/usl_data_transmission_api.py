@@ -11,7 +11,7 @@ import settings
 from database import database
 from serializers.access_credentials_serializer import access_credential_list_entity
 from settings import settings
-from models.models import SiteConfig,TransmissionHistory
+from models.models import SiteConfig,TransmissionHistory,DataDictionaries
 
 
 
@@ -46,21 +46,29 @@ async def extracted_data(baselookup:str):
     except Exception as e:
         log.error("Error fetching extracted data ==> %s", str(e))
 
-        return e
+        raise HTTPException(status_code=500, detail="An internal error has occurred.")
 
 
 
 @router.get('/transmission/history')
 async def history():
     try:
-        results = TransmissionHistory.objects.all()
+        dictionaries = DataDictionaries.objects.all()
 
-        history = [row for row in results]
+        history=[]
+        for dict in dictionaries:
+            lastLoaded = TransmissionHistory.objects.filter(usl_repository_name=dict.name, action='Loading').allow_filtering().first()
+            lastSent = TransmissionHistory.objects.filter(usl_repository_name=dict.name, action='Sending').allow_filtering().first()
+            if lastSent:
+                history.append(lastSent)
+            if lastLoaded:
+                history.append(lastLoaded)
+
+        # history = [row for row in results]
         return {"data":history}
     except Exception as e:
         log.error("Error fetching history data ==> %s", str(e))
-
-        return e
+        raise HTTPException(status_code=500, detail="An internal error has occurred.")
 
 
 @router.get('/manifest/repository/{baselookup}')
@@ -108,11 +116,11 @@ async def manifest(baselookup:str):
     except Exception as e:
         log.error("Error sending data ==> %s", str(e))
 
-        return HTTPException(status_code=500,  detail=e)
+        raise HTTPException(status_code=500,  detail=e)
     except BaseException as be:
         log.error("BaseException: Error sending data ==> %s", str(be))
 
-        return HTTPException(status_code=500,  detail=be)
+        raise HTTPException(status_code=500,  detail=be)
 
 
 async def send_progress(baselookup: str, manifest:object, websocket: WebSocket):
