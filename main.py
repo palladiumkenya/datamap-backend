@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from cassandra.cqlengine.management import sync_table
 from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
-                    usl_data_transmission_api, site_configuration_api,user_management)
+                    usl_data_transmission_api, site_configuration_api, user_management)
 from models.models import (AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms,
                            USLConfig, SchedulesConfig, SiteConfig, TransmissionHistory, SchedulesLog, UniversalDictionaryConfig)
 from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,

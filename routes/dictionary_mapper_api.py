@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
-from datetime import datetime
+# from datetime import datetime
 
 import json
 from fastapi import APIRouter
@@ -169,7 +169,11 @@ async def get_database_columns():
 async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
         #delete existing configs for base repo
-        MappedVariables.objects(base_repository=baselookup).delete()
+        # MappedVariables.objects(base_repository=baselookup).delete()
+        existingMappings = MappedVariables.objects(base_repository=baselookup).all()
+        for mapping in existingMappings:
+            mapping.delete()
+
         for variableSet in variables:
             MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
@@ -256,7 +260,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 3 "
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
 
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -299,7 +303,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                             facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
                             source_system_id=source_system['id'],
-                            source_system_name=source_system['system'],
+                            source_system_name=site_config['primary_system'],
                             ended_at=None,
                             manifest_id=None).save()
 
@@ -309,31 +313,45 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            processed_results=[result for result in baseRepoLoaded]
 
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
 
-                rowvalues = data.values()
+                # rowvalues = data.values()
+                # for key, value in data.items():
+                #     print(data, key, value)
 
                 quoted_values = [
                     'NULL' if value is None
                     else f"'{value}'" if isinstance(value, str)
                     else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+                    else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
                     else str(value)
-                    for value in rowvalues
+                    for key, value in data.items()
                 ]
 
+                # dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=baselookup).first()
+                # base_variables = []
+                # for term in dictionary_terms:
+                #     base_variables.append({"term": term.term, "datatype": term.data_type})
+                # site_config = DataDictionaryTerms.objects.filter(dictionary=baselookup,ter=True).allow_filtering().first()
+
+                idColumn = baselookup +"_id"
+
                 query = f"""
-                           INSERT INTO {baselookup} (client_repository_id, {", ".join(tuple(data.keys()))})
+                           INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
                            VALUES (uuid(), {', '.join(quoted_values)})
                        """
-                # insert_resords = cass_session.prepare(query)
+                log.info("+++++++ data +++++++",query)
+
                 cass_session.execute(query)
                 # Add multiple insert statements to the batch
                 # batch.add(query)
             # cass_session.execute(batch)
+            log.info("+++++++ batch saved +++++++")
 
             # end batch
             cass_session.cluster.shutdown()
@@ -343,9 +361,9 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # loadedHistory.save()
             # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            return baseRepoLoaded
+            return {"data":baseRepoLoaded}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
+        raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
-        return e
 
