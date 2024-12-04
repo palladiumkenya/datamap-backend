@@ -320,10 +320,6 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
 
-                # rowvalues = data.values()
-                # for key, value in data.items():
-                #     print(data, key, value)
-
                 quoted_values = [
                     'NULL' if value is None
                     else f"'{value}'" if isinstance(value, str)
@@ -333,19 +329,13 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
                     for key, value in data.items()
                 ]
 
-                # dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=baselookup).first()
-                # base_variables = []
-                # for term in dictionary_terms:
-                #     base_variables.append({"term": term.term, "datatype": term.data_type})
-                # site_config = DataDictionaryTerms.objects.filter(dictionary=baselookup,ter=True).allow_filtering().first()
-
                 idColumn = baselookup +"_id"
 
                 query = f"""
                            INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
                            VALUES (uuid(), {', '.join(quoted_values)})
                        """
-                log.info("+++++++ data +++++++",query)
+                log.info("+++++++ data +++++++")
 
                 cass_session.execute(query)
                 # Add multiple insert statements to the batch
