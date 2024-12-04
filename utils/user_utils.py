@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -48,6 +48,8 @@ def create_refresh_token(data: dict):
 def verify_token(token: str, secret_key: str):
     try:
         return jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+    except ExpiredSignatureError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired") from e
     except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
