@@ -1,16 +1,17 @@
 from fastapi import  Depends, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
-import asyncio
-import time
-from sqlalchemy.orm import sessionmaker, Session
+from models.models import AccessCredentials
+import json
 import uuid
 import datetime
 from fastapi import APIRouter
+from uuid import UUID
 import requests
 import logging
 import settings
 from database import database
 from serializers.access_credentials_serializer import access_credential_list_entity
 from settings import settings
+from models.models import SiteConfig,TransmissionHistory,DataDictionaries
 
 
 
@@ -38,15 +39,36 @@ async def extracted_data(baselookup:str):
         query = f"""
                    SELECT * FROM {baselookup}
                """
-        baseRepoData = cass_session.execute(query)
-
-        cass_session.cluster.shutdown()
-        return baseRepoData
+        results = cass_session.execute(query)
+        baseRepoData = [row for row in results]
+        # cass_session.cluster.shutdown()
+        return {"data":baseRepoData}
     except Exception as e:
         log.error("Error fetching extracted data ==> %s", str(e))
 
-        return e
+        raise HTTPException(status_code=500, detail="An internal error has occurred.")
 
+
+
+@router.get('/transmission/history')
+async def history():
+    try:
+        dictionaries = DataDictionaries.objects.all()
+
+        history=[]
+        for dict in dictionaries:
+            lastLoaded = TransmissionHistory.objects.filter(usl_repository_name=dict.name, action='Loading').allow_filtering().first()
+            lastSent = TransmissionHistory.objects.filter(usl_repository_name=dict.name, action='Sending').allow_filtering().first()
+            if lastSent:
+                history.append(lastSent)
+            if lastLoaded:
+                history.append(lastLoaded)
+
+        # history = [row for row in results]
+        return {"data":history}
+    except Exception as e:
+        log.error("Error fetching history data ==> %s", str(e))
+        raise HTTPException(status_code=500, detail="An internal error has occurred.")
 
 
 @router.get('/manifest/repository/{baselookup}')
@@ -54,7 +76,7 @@ async def manifest(baselookup:str):
     try:
         cass_session = database.cassandra_session_factory()
 
-        count_query = query = f"""
+        count_query = f"""
                            SELECT count(*) FROM {baselookup}
                        """
         count = cass_session.execute(count_query)
@@ -65,40 +87,43 @@ async def manifest(baselookup:str):
                 """
         columns = cass_session.execute(columns_query)
 
-        source_system_query = f"""
-                        SELECT * FROM access_credentials
-                        WHERE is_active = true ALLOW FILTERING;
-                        """
-        source_system = cass_session.execute(source_system_query)
-        source_system = access_credential_list_entity(source_system)
-        print("source_system ==>",source_system, source_system[0]['system'])
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
 
+        new_manifest = uuid.uuid1()
         manifest = {
+            "manifest_id": new_manifest,
             "usl_repository_name": baselookup,
             "count": [row['count'] for row in count][0],
             "columns": [row['column_name'] for row in columns],
             "session_id": uuid.uuid4(),
-            "source_system_name": source_system[0]['system'],
-            "source_system_version": source_system[0]['system_version'],
+            "source_system_name": source_system['system'],
+            "source_system_version": source_system['system_version'],
             "opendive_version": "1.0.0",
-            "facility": "BOMU facility"
+            "facility": site_config["site_code"]
         }
-        print("manifest ==>",manifest)
 
         cass_session.cluster.shutdown()
-        print("manifest -->",manifest)
+        log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++")
+
+        TransmissionHistory(usl_repository_name = baselookup, action="Sending",
+                        facility = f'{site_config["site_name"]}-{site_config["site_code"]}',
+                        source_system_id = source_system['id'],
+                        source_system_name = source_system['system'],
+                        ended_at = None,
+                        manifest_id =new_manifest).save()
         return manifest
     except Exception as e:
         log.error("Error sending data ==> %s", str(e))
 
-        return HTTPException(status_code=500,  detail=e)
+        raise HTTPException(status_code=500,  detail=e)
     except BaseException as be:
         log.error("BaseException: Error sending data ==> %s", str(be))
 
-        return HTTPException(status_code=500,  detail=be)
+        raise HTTPException(status_code=500,  detail=be)
 
 
-async def send_progress(baselookup: str, websocket: WebSocket):
+async def send_progress(baselookup: str, manifest:object, websocket: WebSocket):
     try:
         cass_session = database.cassandra_session_factory()
 
@@ -119,11 +144,7 @@ async def send_progress(baselookup: str, websocket: WebSocket):
                                    """
         totalResults = cass_session.execute(select_statement)
         for batch in range(total_batches):
-            # select_statement = f"""
-            #                    SELECT * FROM {baselookup} LIMIT {batch_size} OFFSET {batch * batch_size}
-            #                """
-            #
-            # result = cass_session.execute(select_statement)
+
             offset = batch * batch_size
             limit = batch_size
             result = totalResults[offset:offset + limit]
@@ -136,8 +157,14 @@ async def send_progress(baselookup: str, websocket: WebSocket):
             # print('staging to send ', settings.STAGING_API+baselookup)
             log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
 
-            data = {"facility": "BOMU facility",
-                    "facility_id": baseRepoLoaded[0]["facilityid"],
+            site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+
+            data = {
+                    "manifest_id":manifest["manifest_id"],
+                    "batch_no": batch,
+                    "total_batches": total_batches,
+                    "facility": site_config["site_name"],
+                    "facility_id": site_config["site_code"],
                     "data": baseRepoLoaded
                     }
 
@@ -171,9 +198,13 @@ async def send_progress(baselookup: str, websocket: WebSocket):
 
 @router.websocket("/ws/progress/{baselookup}")
 async def websocket_endpoint(baselookup: str, websocket: WebSocket):
+    await websocket.accept()
     try:
-        await websocket.accept()
-        await send_progress(baselookup,websocket)
+        while True:
+            data = await websocket.receive_text()
+            manifest = json.loads(data)
+            print("websocket manifest -->", manifest)
+            await send_progress(baselookup,manifest,websocket)
     except WebSocketDisconnect:
         log.error("Client disconnected")
     except Exception as e:
