@@ -43,6 +43,7 @@ async def startup_event():
     sync_table(UniversalDictionaryConfig)
     sync_table(UniversalDictionaryFacilityPulls)
     sync_table(UniversalDictionaryTokens)
+    sync_table(SiteConfig)
 
 UserBase.metadata.create_all(bind=user_engine)
 

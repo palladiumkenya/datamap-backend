@@ -5,8 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
 from database import database
-from models.models import AccessCredentials
-from serializers.access_credentials_serializer import access_credential_list_entity
+from models.models import AccessCredentials, SiteConfig
+from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity
 
 router = APIRouter()
 
@@ -30,13 +30,14 @@ async def active_connection():
 
 class SaveDBConnection(BaseModel):
     conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
-    name: str = Field(..., description="Database username")
+    name: str = Field(..., description="Connection name")
+    system_id: str = Field(..., description="System ID")
 
 
 @router.post('/add_connection')
 async def add_connection(data: SaveDBConnection):
     try:
-        AccessCredentials.create(conn_string=data.conn_string, name=data.name)
+        AccessCredentials.create(conn_string=data.conn_string, name=data.name, system_id=data.system_id)
         return {'success': True, 'message': 'Connection added successfully'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=e) from e
@@ -90,3 +91,13 @@ async def test_db_connection(data: DBConnectionRequest):
         return {"status": "Database connection successful"}
     else:
         raise HTTPException(status_code=500, detail=error_message)
+
+
+@router.get("/dictionary/systems")
+def get_system_list():
+    systems = SiteConfig.objects.filter(is_active=True).allow_filtering().all()
+    systems_list = systems_list_entity(systems)
+    return {
+        "data": systems_list,
+        "success": True
+    }

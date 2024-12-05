@@ -13,6 +13,7 @@ class AccessCredentials(Model):
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     conn_string = columns.Text(required=True)
     name = columns.Text(required=True)
+    system_id = columns.UUID(required=True, index=True)
 
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
@@ -66,6 +67,7 @@ class IndicatorQueries(Model):
         self.updated_at = datetime.utcnow()
         super().save()
 
+
 class IndicatorHistory(Model):
     __keyspace__ = 'datamap'
     __table_name__ = 'indicator_history'
@@ -82,6 +84,7 @@ class IndicatorHistory(Model):
     def save(self):
         self.created_at = datetime.utcnow()
         super().save()
+
 
 class TransmissionHistory(Model):
     __keyspace__ = 'datamap'
@@ -145,9 +148,10 @@ class SiteConfig(Model):
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     site_name = columns.Text(required=True, index=True)
-    site_id = columns.UUID(required=True, index=True)
+    site_id = columns.Integer(required=True, index=True, )
     primary_system = columns.Text(required=True)
     other_systems = columns.Text(required=False)
+    is_active = columns.Boolean(default=True)
 
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
