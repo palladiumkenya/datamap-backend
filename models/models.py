@@ -92,10 +92,14 @@ class TransmissionHistory(Model):
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     usl_repository_name = columns.Text(required=True)
+    facility = columns.Text(required=True)
+    action = columns.Text(required=True)
     source_system_id = columns.UUID(required=True)
+    source_system_name = columns.Text(required=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     started_at = columns.DateTime(required=True, default=datetime.utcnow())
     ended_at = columns.DateTime(required=False)
+    manifest_id = columns.UUID(default=uuid.uuid1)
 
     def save(self):
         self.started_at = datetime.utcnow()
@@ -148,10 +152,11 @@ class SiteConfig(Model):
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     site_name = columns.Text(required=True, index=True)
-    site_id = columns.Integer(required=True, index=True, )
+    site_code = columns.Text(required=True, index=True)
+    site_id = columns.UUID(required=False, index=True)
     primary_system = columns.Text(required=True)
     other_systems = columns.Text(required=False)
-    is_active = columns.Boolean(default=True)
+    is_active = columns.Boolean(required=True, default=False)
 
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
