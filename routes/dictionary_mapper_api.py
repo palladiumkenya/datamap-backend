@@ -4,6 +4,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
+# from datetime import datetime
+
 import json
 from fastapi import APIRouter
 from typing import List
@@ -11,7 +13,7 @@ from typing import List
 import logging
 
 import settings
-from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries
+from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,TransmissionHistory
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
@@ -124,13 +126,12 @@ async def base_schema_variables(baselookup: str):
 async def base_variables_lookup(base_lookup: str):
 
     try:
-
         dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=base_lookup).all()
         base_variables = []
         for term in dictionary_terms:
-            base_variables.append(term.term)
+            base_variables.append({"term":term.term, "datatype":term.data_type})
 
-        return base_variables
+        return {"data":base_variables}
     except Exception as e:
         log.error('System ran into an error fetching base_variables --->', e)
         return e
@@ -168,7 +169,11 @@ async def get_database_columns():
 async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
         #delete existing configs for base repo
-        MappedVariables.objects(base_repository=baselookup).delete()
+        # MappedVariables.objects(base_repository=baselookup).delete()
+        existingMappings = MappedVariables.objects(base_repository=baselookup).all()
+        for mapping in existingMappings:
+            mapping.delete()
+
         for variableSet in variables:
             MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
                                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
@@ -238,8 +243,7 @@ def generate_query(baselookup:str):
         configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
         configs = mapped_variable_list_entity(configs)
 
-        primaryTable = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
-        primaryTableDetails = mapped_variable_list_entity(primaryTable)
+        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
 
         mapped_columns = []
         mapped_joins = []
@@ -289,52 +293,67 @@ def convert_datetime_to_iso(data):
 @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
     try:
-
         query = text(generate_query(baselookup))
 
         cass_session = database.cassandra_session_factory()
 
+        # started loading
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+        loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
+                            facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
+                            source_system_id=source_system['id'],
+                            source_system_name=site_config['primary_system'],
+                            ended_at=None,
+                            manifest_id=None).save()
+
         with db_session as session:
             result = session.execute(query)
-            print("result --->", result)
 
             columns=result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
-            print("baseRepoLoaded --->", baseRepoLoaded)
 
-            processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
-            print("processed_results --->", processed_results)
-            # rows = []
-            # Create a batch statement
+            # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            processed_results=[result for result in baseRepoLoaded]
+
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
-
-                rowvalues = data.values()
 
                 quoted_values = [
                     'NULL' if value is None
                     else f"'{value}'" if isinstance(value, str)
                     else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+                    else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
                     else str(value)
-                    for value in rowvalues
+                    for key, value in data.items()
                 ]
 
+                idColumn = baselookup +"_id"
+
                 query = f"""
-                           INSERT INTO {baselookup} (client_repository_id, {", ".join(tuple(data.keys()))})
+                           INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
                            VALUES (uuid(), {', '.join(quoted_values)})
                        """
-                # insert_resords = cass_session.prepare(query)
+                log.info("+++++++ data +++++++")
+
                 cass_session.execute(query)
                 # Add multiple insert statements to the batch
                 # batch.add(query)
             # cass_session.execute(batch)
+            log.info("+++++++ batch saved +++++++")
 
             # end batch
             cass_session.cluster.shutdown()
-            return baseRepoLoaded
+
+            # ended loading
+            # loadedHistory.ended_at=datetime.utcnow()
+            # loadedHistory.save()
+            # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
+
+            return {"data":baseRepoLoaded}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
+        raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
-        return e
 
