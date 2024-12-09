@@ -361,8 +361,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 def expected_variables_dqa(data, lookup):
     valid_match = True
     try:
-        dictionary = DataDictionaries.objects.filter(name=lookup).first()
-        if dictionary:
+        if dictionary := DataDictionaries.objects.filter(name=lookup).first():
             dictionary_terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary.id).all()
             for term in dictionary_terms:
                 column_data = data.get(term.term)
