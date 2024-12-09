@@ -28,11 +28,17 @@ async def active_connection():
         .allow_filtering()
         .first()
     )
+
+    if active_credentials is None:
+        return {"error": "No active credentials found"}
+
     credentials = access_credential_entity(active_credentials)
     if credentials is not None:
         system = SiteConfig.objects().filter(id=credentials['system_id']).first()
         credentials['system'] = system_entity(system)
-    return credentials
+        return credentials
+
+    return {"error": "Failed to process active credentials"}
 
 
 class SaveDBConnection(BaseModel):
