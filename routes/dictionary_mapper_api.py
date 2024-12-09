@@ -366,9 +366,9 @@ def expected_variables_dqa(data, lookup):
             dictionary_terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary.id).all()
             for term in dictionary_terms:
                 column_data = data.get(term.term)
-                if is_valid_regex(term.expected_values):
-                    if not re.match(pattern=term.expected_values, string=str(column_data)):
-                        valid_match = False
+                if is_valid_regex(term.expected_values) and not re.match(pattern=term.expected_values, string=str(column_data)):
+                    valid_match = False
+
     except Exception as e:
         log.error(f"Error {str(e)}")
 
