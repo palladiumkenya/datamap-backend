@@ -321,8 +321,6 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
-                expected_variables_dqa(data, baselookup)
-
                 quoted_values = [
                     'NULL' if value is None
                     else f"'{value}'" if isinstance(value, str)
@@ -354,31 +352,28 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # loadedHistory.save()
             # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            return {"data": baseRepoLoaded}
+            return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
 
 def expected_variables_dqa(data, lookup):
-    error = None
+    valid_match = True
     try:
         dictionary = DataDictionaries.objects.filter(name=lookup).first()
         if dictionary:
             dictionary_terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary.id).all()
             for term in dictionary_terms:
                 column_data = data.get(term.term)
-                print(term.expected_values, column_data)
                 if is_valid_regex(term.expected_values):
-                    if re.match(pattern=term.expected_values, string=str(column_data)):
-                        print(f'term matches expected {term.expected_values} {column_data}')
-                    else:
-                        print('term dose not match expected')
-                        error = True
+                    if not re.match(pattern=term.expected_values, string=str(column_data)):
+                        valid_match = False
     except Exception as e:
         log.error(f"Error {str(e)}")
 
-    return error
+    data['valid_match'] = valid_match
+    return data
 
 
 def is_valid_regex(pattern):
