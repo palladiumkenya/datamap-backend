@@ -103,6 +103,25 @@ class TransmissionHistory(Model):
         super().save()
 
 
+class USLDataErrorLogs(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'usl_data_error_logs'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    usl_repository_name = columns.Text(required=True)
+    base_variable = columns.Text(required=True)
+    issue = columns.Text(required=True)
+    recommended_solution = columns.Text(required=True)
+    source_system_id = columns.UUID(required=True)
+    source_system_name = columns.Text(required=True)
+    created_at = columns.DateTime(required=True, default=datetime.utcnow())
+    is_latest = columns.Boolean(default=False)
+
+    def save(self):
+        self.started_at = datetime.utcnow()
+        super().save()
+
+
 class DataDictionaries(Model):
     __keyspace__ = 'datamap'
     __table_name__ = 'data_dictionaries'
