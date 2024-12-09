@@ -183,6 +183,39 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
         return {"status":500, "message":e}
 
 
+@router.post('/test/mapped_variables/{baselookup}')
+async def test_mapped_variables(baselookup:str, variables:List[object], db_session: Session = Depends(get_db)):
+    try:
+        extractQuery = text(generate_query(baselookup))
+
+        with db_session as session:
+            result = session.execute(extractQuery)
+
+            columns = result.keys()
+            baseRepoLoaded = [dict(zip(columns, row)) for row in result]
+
+            processed_results = [result for result in baseRepoLoaded]
+
+        list_of_issues =[]
+        for variableSet in variables:
+            if variableSet["base_variable_mapped_to"] !="PrimaryTableId":
+                filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
+
+                dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup,
+                                                   term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
+
+                if dictTerms["is_required"] == True:
+                    if "" in filteredData or None in filteredData or "NULL" in filteredData:
+                        issueObj = {"base_variable":variableSet["base_variable_mapped_to"],
+                         "issue":"*Variable is Mandatory. Data is expected in all records.",
+                         "column_mapped":variableSet["columnname"],
+                         "recommended_solution":"Ensure all records have this data"}
+                        list_of_issues.append(issueObj)
+
+        return {"data":list_of_issues}
+    except Exception as e:
+        return {"status":500, "message":e}
+
 @router.get('/generate_config/{baselookup}')
 async def generate_config(baselookup:str):
     try:
