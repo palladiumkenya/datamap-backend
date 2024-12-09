@@ -188,35 +188,16 @@ async def test_mapped_variables(baselookup:str, variables:List[object], db_sessi
     try:
         extractQuery = text(generate_query(baselookup))
 
-        cass_session = database.cassandra_session_factory()
-
         with db_session as session:
             result = session.execute(extractQuery)
 
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns, row)) for row in result]
 
-            # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
             processed_results = [result for result in baseRepoLoaded]
-
-            # extractedValues = []
-            # for data in processed_results:
-            #     extractedValues = [for key, value in data.items()]
-
-            #     quoted_values = [
-            #         'NULL' if value is None
-            #         else f"'{value}'" if isinstance(value, str)
-            #         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-            #         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,
-            #                                                                  term=key).allow_filtering().first()[
-            #                                   "is_required"] == True)
-            #         else str(value)
-            #         for key, value in data.items()
-            #     ]
 
         list_of_issues =[]
         for variableSet in variables:
-            # filteredData = [{variableSet["base_variable_mapped_to"]:obj[variableSet["base_variable_mapped_to"]]} for obj in processed_results]
             if variableSet["base_variable_mapped_to"] !="PrimaryTableId":
                 filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
 
@@ -224,18 +205,13 @@ async def test_mapped_variables(baselookup:str, variables:List[object], db_sessi
                                                    term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
 
                 if dictTerms["is_required"] == True:
-                    # mandatoryValuesFailed = [item for item in filteredData if item =="" or item ==None or item =="NULL"]
                     if "" in filteredData or None in filteredData or "NULL" in filteredData:
                         issueObj = {"base_variable":variableSet["base_variable_mapped_to"],
                          "issue":"*Variable is Mandatory. Data is expected in all records.",
                          "column_mapped":variableSet["columnname"],
                          "recommended_solution":"Ensure all records have this data"}
                         list_of_issues.append(issueObj)
-                # DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
-                # MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
-                #                                        datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
-                #                                        base_variable_mapped_to=variableSet["base_variable_mapped_to"], join_by=variableSet["join_by"])
-        print("list_of_issues ",list_of_issues)
+
         return {"data":list_of_issues}
     except Exception as e:
         return {"status":500, "message":e}

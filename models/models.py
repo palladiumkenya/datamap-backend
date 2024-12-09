@@ -118,7 +118,7 @@ class USLDataErrorLogs(Model):
     is_latest = columns.Boolean(default=False)
 
     def save(self):
-        self.started_at = datetime.utcnow()
+        self.created_at = datetime.utcnow()
         super().save()
 
 
