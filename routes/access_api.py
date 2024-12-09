@@ -6,7 +6,8 @@ from sqlalchemy.exc import OperationalError
 
 from database import database
 from models.models import AccessCredentials, SiteConfig
-from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity
+from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity, system_entity, \
+    access_credential_entity
 
 router = APIRouter()
 
@@ -20,12 +21,24 @@ async def available_connections():
 
 @router.get('/active_connection')
 async def active_connection():
-    return (
-        AccessCredentials.objects()
+    active_credentials = (
+        AccessCredentials
+        .objects()
         .filter(is_active=True)
         .allow_filtering()
         .first()
     )
+
+    if active_credentials is None:
+        return {"error": "No active credentials found"}
+
+    credentials = access_credential_entity(active_credentials)
+    if credentials is not None:
+        system = SiteConfig.objects().filter(id=credentials['system_id']).first()
+        credentials['system'] = system_entity(system)
+        return credentials
+
+    return {"error": "Failed to process active credentials"}
 
 
 class SaveDBConnection(BaseModel):
