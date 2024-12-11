@@ -1,3 +1,5 @@
+import re
+
 from fastapi import  Depends, HTTPException
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.exc import SQLAlchemyError
@@ -349,7 +351,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
         with db_session as session:
             result = session.execute(query)
 
-            columns=result.keys()
+            columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
             # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
@@ -358,7 +360,6 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
-
                 quoted_values = [
                     'NULL' if value is None
                     else f"'{value}'" if isinstance(value, str)
@@ -368,7 +369,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
                     for key, value in data.items()
                 ]
 
-                idColumn = baselookup +"_id"
+                idColumn = baselookup + "_id"
 
                 query = f"""
                            INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
@@ -390,9 +391,32 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # loadedHistory.save()
             # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            return {"data":baseRepoLoaded}
+            return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
 
+def expected_variables_dqa(data, lookup):
+    valid_match = True
+    try:
+        if dictionary := DataDictionaries.objects.filter(name=lookup).first():
+            dictionary_terms = DataDictionaryTerms.objects.filter(dictionary_id=dictionary.id).all()
+            for term in dictionary_terms:
+                column_data = data.get(term.term)
+                if is_valid_regex(term.expected_values) and not re.match(pattern=term.expected_values, string=str(column_data)):
+                    valid_match = False
+
+    except Exception as e:
+        log.error(f"Error {str(e)}")
+
+    data['valid_match'] = valid_match
+    return data
+
+
+def is_valid_regex(pattern):
+    try:
+        re.compile(pattern)
+        return True
+    except re.error:
+        return False
