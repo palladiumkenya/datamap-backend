@@ -198,25 +198,31 @@ async def test_mapped_variables(baselookup:str, variables:List[object], db_sessi
 
             processed_results = [result for result in baseRepoLoaded]
 
-        list_of_issues =[]
-        for variableSet in variables:
-            if variableSet["base_variable_mapped_to"] !="PrimaryTableId":
-                filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
-
-                dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup,
-                                                   term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
-
-                if dictTerms["is_required"] == True:
-                    if "" in filteredData or None in filteredData or "NULL" in filteredData:
-                        issueObj = {"base_variable":variableSet["base_variable_mapped_to"],
-                         "issue":"*Variable is Mandatory. Data is expected in all records.",
-                         "column_mapped":variableSet["columnname"],
-                         "recommended_solution":"Ensure all records have this data"}
-                        list_of_issues.append(issueObj)
+        list_of_issues = validateMandatoryFields(baselookup, variables, processed_results)
 
         return {"data":list_of_issues}
     except Exception as e:
         return {"status":500, "message":e}
+
+
+def validateMandatoryFields(baselookup:str, variables:List[object], processed_results:List[object]):
+
+    list_of_issues = []
+    for variableSet in variables:
+        if variableSet["base_variable_mapped_to"] != "PrimaryTableId":
+            filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
+
+            dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
+
+            if dictTerms["is_required"] == True:
+                if "" in filteredData or None in filteredData or "NULL" in filteredData:
+                    issueObj = {"base_variable": variableSet["base_variable_mapped_to"],
+                                "issue": "*Variable is Mandatory. Data is expected in all records.",
+                                "column_mapped": variableSet["columnname"],
+                                "recommended_solution": "Ensure all records have this data"}
+                    list_of_issues.append(issueObj)
+    return list_of_issues
+
 
 @router.get('/generate_config/{baselookup}')
 async def generate_config(baselookup:str):
@@ -295,7 +301,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}"
 
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -385,7 +391,8 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # loadedHistory.save()
             # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
+            # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
+            return {"data": baseRepoLoaded}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))

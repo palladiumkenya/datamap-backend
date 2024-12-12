@@ -97,8 +97,9 @@ async def manifest(baselookup:str):
             "count": [row['count'] for row in count][0],
             "columns": [row['column_name'] for row in columns],
             "session_id": uuid.uuid4(),
-            "source_system_name": source_system['system'],
-            "source_system_version": source_system['system_version'],
+            "source_system_name": site_config['primary_system'],
+            # "source_system_version": source_system['system_version'],
+            "source_system_version": 1,
             "opendive_version": "1.0.0",
             "facility": site_config["site_code"]
         }
@@ -108,8 +109,8 @@ async def manifest(baselookup:str):
 
         TransmissionHistory(usl_repository_name = baselookup, action="Sending",
                         facility = f'{site_config["site_name"]}-{site_config["site_code"]}',
-                        source_system_id = source_system['id'],
-                        source_system_name = source_system['system'],
+                        source_system_id = site_config['id'],
+                        source_system_name = site_config['primary_system'],
                         ended_at = None,
                         manifest_id =new_manifest).save()
         return manifest
