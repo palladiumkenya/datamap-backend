@@ -90,7 +90,7 @@ async def create_data_dictionary(
 ):
     # Create a new data dictionary object
     dictionary = DataDictionariesUSL(
-        name=data.name,
+        name=data.name.lower(),
         version_number=1
     )
     dictionary.save()

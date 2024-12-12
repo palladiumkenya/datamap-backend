@@ -1,12 +1,10 @@
 import uuid
 from collections import defaultdict
-from uuid import UUID
 
 import requests
+from cassandra.cqlengine import columns, models
 from cassandra.cqlengine.management import sync_table, drop_table
 from cassandra.cqlengine.query import DoesNotExist
-from cassandra.cqlengine import columns, models
-
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from database import database
@@ -70,12 +68,8 @@ def sync_dictionaries(datasource_id: str, usl_dicts: list) -> dict:
 
         existing_dict = DataDictionaries.objects().filter(name=dictionary['name']).allow_filtering().first()
         if not existing_dict:
-            new_dict = DataDictionaries(
-                name=dictionary['name'],
-                is_published=dictionary['is_published'],
-                version_number=dictionary['version_number'],
-                datasource_id=datasource_id
-            )
+            new_dict = DataDictionaries(name=dictionary['name'], is_published=dictionary['is_published'],
+                version_number=dictionary['version_number'], datasource_id=datasource_id)
             new_dict.save()
             for term in usl_dict['dictionary_terms']:
                 term['dictionary_id'] = new_dict.id
@@ -99,7 +93,6 @@ def sync_dictionaries(datasource_id: str, usl_dicts: list) -> dict:
 
 
 def sync_terms(terms):
-
     active_terms = set()
     dictionaries = []
 
@@ -112,16 +105,10 @@ def sync_terms(terms):
             existing_term = DataDictionaryTerms.objects().filter(dictionary=usl_term['dictionary'],
                                                                  term=usl_term['term']).allow_filtering().first()
             if not existing_term:
-                new_term = DataDictionaryTerms(
-                    dictionary=usl_term['dictionary'],
-                    dictionary_id=dictionary_id,
-                    term=usl_term['term'],
-                    data_type=usl_term['data_type'],
-                    is_required=usl_term['is_required'],
-                    term_description=usl_term['term_description'],
-                    expected_values=usl_term['expected_values'],
-                    is_active=usl_term['is_active']
-                )
+                new_term = DataDictionaryTerms(dictionary=usl_term['dictionary'], dictionary_id=dictionary_id,
+                    term=usl_term['term'], data_type=usl_term['data_type'], is_required=usl_term['is_required'],
+                    term_description=usl_term['term_description'], expected_values=usl_term['expected_values'],
+                    is_active=usl_term['is_active'])
                 new_term.save()
             else:
                 existing_term.data_type = usl_term['data_type']
@@ -240,10 +227,8 @@ def dictionary_version_notification():
             existing_dictionaries.append(dictionary.id)
             if dictionary is not None:
                 dictionary = data_dictionary_entity(dictionary)
-                if (
-                        universal_dict["dictionary"]["version_number"] != dictionary["version_number"]
-                        or universal_dict["dictionary"]["is_published"] != dictionary["is_published"]
-                ):
+                if (universal_dict["dictionary"]["version_number"] != dictionary["version_number"] or
+                        universal_dict["dictionary"]["is_published"] != dictionary["is_published"]):
                     to_update = True
                     to_update_count += 1
             else:
