@@ -301,7 +301,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} limit 1000"
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}"
 
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -391,7 +391,8 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # loadedHistory.save()
             # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
+            # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
+            return {"data": baseRepoLoaded}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
