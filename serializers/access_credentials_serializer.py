@@ -4,7 +4,6 @@ def access_credential_entity(credential) -> dict:
         "conn_string": str(credential["conn_string"]),
         "name": str(credential["name"]),
         "is_active": bool(credential["is_active"]),
-        "system_id": str(credential["system_id"]),
         "created_at": credential["created_at"],
         "updated_at": credential["updated_at"]
     }
