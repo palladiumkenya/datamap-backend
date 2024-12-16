@@ -50,6 +50,10 @@ class SaveDBConnection(BaseModel):
 @router.post('/add_connection')
 async def add_connection(data: SaveDBConnection):
     try:
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().all()
+        for credential in credentials:
+            credential.is_active = False
+            credential.save()
         AccessCredentials.create(conn_string=data.conn_string, name=data.name, system_id=data.system_id)
         return {'success': True, 'message': 'Connection added successfully'}
     except Exception as e:

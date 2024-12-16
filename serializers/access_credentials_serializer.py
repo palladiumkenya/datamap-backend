@@ -13,7 +13,7 @@ def system_entity(system) -> dict:
     return {
         "id": str(system["id"]),
         "name": str(system["site_name"]),
-        "site_id": str(system["site_id"]),
+        "site_code": str(system["site_code"]),
         "primary_system": str(system["primary_system"])
     }
 
