@@ -34,7 +34,7 @@ async def active_connection():
 
     credentials = access_credential_entity(active_credentials)
     if credentials is not None:
-        system = SiteConfig.objects().filter(is_active=True).first()
+        system = SiteConfig.objects().filter(is_active=True).allow_filtering().first()
         credentials['site'] = system_entity(system)
         return credentials
 
