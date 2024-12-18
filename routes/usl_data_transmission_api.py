@@ -93,13 +93,13 @@ async def manifest(baselookup:str):
         new_manifest = uuid.uuid1()
         manifest = {
             "manifest_id": new_manifest,
-            "usl_repository_name": baselookup,
+            "usl_repository_name": baselookup.lower(),
             "count": [row['count'] for row in count][0],
             "columns": [row['column_name'] for row in columns],
             "session_id": uuid.uuid4(),
             "source_system_name": site_config['primary_system'],
             # "source_system_version": source_system['system_version'],
-            "source_system_version": 1,
+            "source_system_version": "19.0.0",
             "opendive_version": "1.0.0",
             "facility": site_config["site_code"]
         }
@@ -170,7 +170,7 @@ async def send_progress(baselookup: str, manifest:object, websocket: WebSocket):
                     }
 
             log.info(f'===== STARTED SENDING DATA TO STAGING_API ===== Batch No. {batch}')
-            res = requests.post(settings.STAGING_API + baselookup,
+            res = requests.post(settings.STAGING_API + baselookup.lower(),
                                 json=data)
             log.info(f'===== SUCCESSFULLY SENT BATCH No. {batch} TO STAGING_API ===== Status Code :{res.status_code} ')
 
