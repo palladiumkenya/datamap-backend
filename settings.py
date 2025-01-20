@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     CASSANDRA_USER: str
     CASSANDRA_PASSWORD: str
 
+    POSTGRES_HOST: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+
     STAGING_API: str
     BATCH_SIZE: int
     JWT_SECRET_KEY: str

@@ -15,11 +15,13 @@ from typing import List
 import logging
 
 import settings
-from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,TransmissionHistory
+from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,\
+    TransmissionHistory,dynamic_models
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
 from settings import settings
+from database.postgres_db import UslDBSessionLocal
 
 
 log = logging.getLogger()
@@ -291,7 +293,7 @@ def generate_query(baselookup:str):
 
         for conf in configs:
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
+                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+ conf["base_variable_mapped_to"].lower() +"' ")
                 if all(conf["tablename"]+"." not in s for s in mapped_joins):
                     if conf["tablename"] != primaryTableDetails['tablename']:
                         mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
@@ -354,32 +356,47 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
+            processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
             processed_results=[result for result in baseRepoLoaded]
+            #
+            # batch = BatchStatement()
+            # cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
+            # for data in processed_results:
+            #     quoted_values = [
+            #         'NULL' if value is None
+            #         else f"'{value}'" if isinstance(value, str)
+            #         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+            #         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
+            #         else str(value)
+            #         for key, value in data.items()
+            #     ]
+            #
+            #     idColumn = baselookup + "_id"
+            #
+            #     query = f"""
+            #                INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
+            #                VALUES (uuid(), {', '.join(quoted_values)})
+            #            """
+            #     log.info("+++++++ data +++++++")
+            #     cass_session.execute(query)
 
-            batch = BatchStatement()
-            cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
-            for data in processed_results:
-                quoted_values = [
-                    'NULL' if value is None
-                    else f"'{value}'" if isinstance(value, str)
-                    else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-                    else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
-                    else str(value)
-                    for key, value in data.items()
-                ]
+            # save to postgres usl db
+            USLDictionaryModel = dynamic_models.get(baselookup)
+            if not USLDictionaryModel:
+                raise ValueError(f"Model for table '{baselookup}' not found.")
+            log.info("+++ USLDictionaryModel +++", USLDictionaryModel)
 
-                idColumn = baselookup + "_id"
+            # Create multiple records then Add and commit the records to the database
+            dataToBeInserted = processed_results
+            new_records = [USLDictionaryModel(**data) for data in dataToBeInserted]
 
-                query = f"""
-                           INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
-                           VALUES (uuid(), {', '.join(quoted_values)})
-                       """
-                log.info("+++++++ data +++++++")
+            postgresdb_session: Session = UslDBSessionLocal()
+            postgresdb_session.add_all(new_records)
+            postgresdb_session.commit()
 
-                cass_session.execute(query)
-                # Add multiple insert statements to the batch
-                # batch.add(query)
+            # cass_session.execute(query)
+            # Add multiple insert statements to the batch
+            # batch.add(query)
             # cass_session.execute(batch)
             log.info("+++++++ batch saved +++++++")
 
@@ -421,3 +438,10 @@ def is_valid_regex(pattern):
         return True
     except re.error:
         return False
+
+
+def extract_and_load_data():
+    logging.info("Extracting and loading data...")
+    # Add your data extraction and loading logic here
+    # Example: Fetch data from an API and load it into a database
+    pass

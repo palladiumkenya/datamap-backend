@@ -4,7 +4,7 @@ import json
 import uuid
 import datetime
 from fastapi import APIRouter
-from uuid import UUID
+from sqlalchemy.orm import Session
 import requests
 import logging
 import settings

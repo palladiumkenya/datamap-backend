@@ -9,6 +9,7 @@ from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, Dict
                                UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
 from database.user_db import UserBase, user_engine, SessionLocal
 from utils.user_utils import seed_default_user
+from database.postgres_db import UslDbBase, usl_db_engine, UslDBSessionLocal
 
 app = FastAPI()
 
@@ -47,6 +48,10 @@ async def startup_event():
     sync_table(TransmissionHistory)
 
 UserBase.metadata.create_all(bind=user_engine)
+
+#create usl tables in postgres
+UslDbBase.metadata.create_all(bind=usl_db_engine)
+
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
 app.include_router(dictionary_mapper_api.router, tags=['Mapper'], prefix='/api/dictionary_mapper')

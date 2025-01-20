@@ -254,3 +254,9 @@ class UniversalDictionaryConfig(Model):
         self.updated_at = datetime.utcnow()
         super().save()
 
+
+
+
+# Dynamically create models
+from database.create_dictionary_models import *
+dynamic_models = create_models_from_metadata()

@@ -14,6 +14,10 @@ from models.models import DataDictionaries, DataDictionaryTerms, UniversalDictio
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
     data_dictionary_entity
 
+from database.create_dictionary_models import *
+
+
+
 router = APIRouter()
 
 
@@ -221,6 +225,9 @@ def sync_all(datasource_id: str, background_tasks: BackgroundTasks):
         response = pull_dict_from_universal(universal_dict_config)
         dict_map = sync_dictionaries(datasource_id, response.get("data"))
         background_tasks.add_task(create_tables)
+        #sync postgres usl db
+        background_tasks.add_task(create_models_from_metadata)
+
         return {"message": "All data synced successfully", "data": dict_map}
     else:
         return {"message": "Please add a valid Universal Dictionary Configuration first"}
