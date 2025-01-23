@@ -105,6 +105,24 @@ class TransmissionHistory(Model):
         super().save()
 
 
+class Manifests(Model):
+    __keyspace__ = 'datamap'
+    __table_name__ = 'manifests'
+
+    id = columns.UUID(primary_key=True, default=uuid.uuid1)
+    usl_repository_name = columns.Text(required=True)
+    site_name = columns.Text(required=True, index=True)
+    site_code = columns.Text(required=True, index=True)
+    records_count = columns.Integer(required=True)
+    source_system_id = columns.UUID(required=True)
+    source_system_name = columns.Text(required=True)
+    extracted_at = columns.DateTime(required=True, default=datetime.utcnow())
+    manifest_id = columns.UUID(default=uuid.uuid1)
+
+    def save(self):
+        self.created_at = datetime.utcnow()
+        super().save()
+
 class USLDataErrorLogs(Model):
     __keyspace__ = 'datamap'
     __table_name__ = 'usl_data_error_logs'

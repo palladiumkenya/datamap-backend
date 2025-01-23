@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
 # from datetime import datetime
-
+import uuid
 import json
 from fastapi import APIRouter
 from typing import List
@@ -16,7 +16,7 @@ import logging
 
 import settings
 from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,\
-    TransmissionHistory,dynamic_models
+    TransmissionHistory, Manifests, dynamic_models
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
@@ -358,55 +358,41 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
             processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
             processed_results=[result for result in baseRepoLoaded]
-            #
-            # batch = BatchStatement()
-            # cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
-            # for data in processed_results:
-            #     quoted_values = [
-            #         'NULL' if value is None
-            #         else f"'{value}'" if isinstance(value, str)
-            #         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-            #         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
-            #         else str(value)
-            #         for key, value in data.items()
-            #     ]
-            #
-            #     idColumn = baselookup + "_id"
-            #
-            #     query = f"""
-            #                INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
-            #                VALUES (uuid(), {', '.join(quoted_values)})
-            #            """
-            #     log.info("+++++++ data +++++++")
-            #     cass_session.execute(query)
 
-            # save to postgres usl db
+            # create manifest
+            new_manifest = uuid.uuid1()
+            Manifests(usl_repository_name=baselookup, records_count=len(baseRepoLoaded),
+                      site_name=site_config["site_name"], site_code=site_config["site_code"],
+                      source_system_id=source_system['id'],
+                      source_system_name=site_config['primary_system'],
+                      manifest_id=new_manifest).save()
+
+            # clear usl data for this facility
             USLDictionaryModel = dynamic_models.get(baselookup)
+            postgresdb_session: Session = UslDBSessionLocal()
+
             if not USLDictionaryModel:
                 raise ValueError(f"Model for table '{baselookup}' not found.")
             log.info("+++ USLDictionaryModel +++", USLDictionaryModel)
 
-            # Create multiple records then Add and commit the records to the database
-            dataToBeInserted = processed_results
+            postgresdb_session.query(USLDictionaryModel).delete()
+            postgresdb_session.commit()  # Commit the changes
+
+            log.info(
+                f'++++++++ Cleared :{baselookup} records from repository +++++++++')
+
+            # save to postgres usl db
+            dataToBeInserted = processed_results # Create multiple records then Add and commit the records to the database
             new_records = [USLDictionaryModel(**data) for data in dataToBeInserted]
 
-            postgresdb_session: Session = UslDBSessionLocal()
             postgresdb_session.add_all(new_records)
             postgresdb_session.commit()
 
             # cass_session.execute(query)
-            # Add multiple insert statements to the batch
-            # batch.add(query)
-            # cass_session.execute(batch)
             log.info("+++++++ batch saved +++++++")
 
             # end batch
             cass_session.cluster.shutdown()
-
-            # ended loading
-            # loadedHistory.ended_at=datetime.utcnow()
-            # loadedHistory.save()
-            # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
             # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
             return {"data": baseRepoLoaded}
