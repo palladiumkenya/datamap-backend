@@ -1,10 +1,16 @@
+import asyncio
+import contextlib
+import uuid
 from urllib.parse import quote_plus
-from fastapi import APIRouter, HTTPException
+
+from cassandra.query import SimpleStatement
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
 from database import database
+from database.database import execute_query, _session
 from models.models import AccessCredentials, SiteConfig
 from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity, system_entity, \
     access_credential_entity
@@ -44,6 +50,7 @@ async def active_connection():
 class SaveDBConnection(BaseModel):
     conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
     name: str = Field(..., description="Connection name")
+    conn_type: str = Field(..., description="Connection Type")
     system_id: str = Field(..., description="System ID")
 
 
@@ -54,10 +61,49 @@ async def add_connection(data: SaveDBConnection):
         for credential in credentials:
             credential.is_active = False
             credential.save()
-        AccessCredentials.create(conn_string=data.conn_string, name=data.name, system_id=data.system_id)
+        AccessCredentials.create(
+            conn_string=data.conn_string, name=data.name, system_id=data.system_id, conn_type=data.conn_type
+        )
         return {'success': True, 'message': 'Connection added successfully'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=e) from e
+
+
+class SaveCSVUploadData(BaseModel):
+    name: str = Field(..., description="Name of connection")
+    data: list = Field(..., description="")
+
+
+def create_table(data):
+    columns = ', '.join([f'{key} TEXT' for key in data.data[0].keys()])
+    _session.execute(f"""
+    CREATE TABLE IF NOT EXISTS {data.name}_CSV_EXTRACT (
+        generated_id_unique UUID PRIMARY KEY, -- primary key generated for this table
+        {columns}
+    )
+    """)
+
+
+def upload_data(data):
+    try:
+        create_table(data)
+        for record in data.data:
+            columns = ', '.join(record.keys())
+            placeholders = ', '.join(['%s'] * len(record))
+            query = SimpleStatement(f"""
+                INSERT INTO {data.name}_CSV_EXTRACT (generated_id_unique, {columns})
+                VALUES (%s, {placeholders})
+            """)
+            values = (uuid.uuid4(), *record.values())
+            _session.execute(query, values)
+    except Exception as e:
+        print(e)
+
+
+@router.post('/upload_csv')
+async def upload_csv(data: SaveCSVUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
+    background_tasks.add_task(upload_data, data)
+    return {'message': 'Upload started'}
 
 
 @router.delete('/delete_connection/{connection_id}')
