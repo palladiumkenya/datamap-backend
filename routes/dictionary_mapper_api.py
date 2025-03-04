@@ -1,10 +1,14 @@
 import re
 
-from fastapi import  Depends, HTTPException
+from fastapi import  Depends, HTTPException, WebSocket, WebSocketDisconnect,BackgroundTasks
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
-from cassandra.query import BatchStatement
+from cassandra.query import BatchStatement,SimpleStatement, ConsistencyLevel
+from cassandra import ConsistencyLevel
+
+from cassandra.concurrent import execute_concurrent_with_args
+
 import datetime
 # from datetime import datetime
 
@@ -301,7 +305,7 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}"
+        query = f"SELECT top 1000 {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')} "
 
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -357,7 +361,9 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
             # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
             processed_results=[result for result in baseRepoLoaded]
 
-            batch = BatchStatement()
+            # batch = BatchStatement()
+            batch = BatchStatement(consistency_level=ConsistencyLevel.QUORUM)
+
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             for data in processed_results:
                 quoted_values = [
@@ -371,20 +377,23 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
 
                 idColumn = baselookup + "_id"
 
-                query = f"""
+                insert_query = f"""
                            INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
                            VALUES (uuid(), {', '.join(quoted_values)})
                        """
-                log.info("+++++++ data +++++++")
+                statement = SimpleStatement(insert_query, consistency_level=ConsistencyLevel.QUORUM)
 
-                cass_session.execute(query)
+                log.info("+++++++ data +++++++")
+                cass_session.execute(statement)
+
                 # Add multiple insert statements to the batch
                 # batch.add(query)
+
+                # Execute batch insert
             # cass_session.execute(batch)
             log.info("+++++++ batch saved +++++++")
 
             # end batch
-            cass_session.cluster.shutdown()
 
             # ended loading
             # loadedHistory.ended_at=datetime.utcnow()
@@ -421,3 +430,92 @@ def is_valid_regex(pattern):
         return True
     except re.error:
         return False
+
+
+
+
+def source_total_count(baselookup:str):
+    try:
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
+
+        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
+
+        mapped_columns = []
+        mapped_joins = []
+
+        for conf in configs:
+            if conf["base_variable_mapped_to"] != 'PrimaryTableId':
+                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
+                if all(conf["tablename"]+"." not in s for s in mapped_joins):
+                    if conf["tablename"] != primaryTableDetails['tablename']:
+                        mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
+                        " = " + conf["tablename"].strip() + "." + conf["join_by"].strip())
+
+        columns = ", ".join(mapped_columns)
+        joins = ", ".join(mapped_joins)
+
+
+        query = f"SELECT count(*) as count from {primaryTableDetails['tablename']} {joins.replace(',','')}"
+
+        log.info("++++++++++ Successfully generated count query +++++++++++")
+        return query
+    except Exception as e:
+        log.error("Error generating query. ERROR: ==> %s", str(e))
+
+        return e
+
+
+import asyncio
+async def inserted_total_count(baselookup:str, sourceCount:int, websocket: WebSocket):
+    while True:
+        try:
+            cass_session = database.cassandra_session_factory()
+
+            totalRecordsquery = f"SELECT COUNT(*) as count FROM {baselookup}"
+            totalRecordsresult = cass_session.execute(totalRecordsquery)
+            cass_session.cluster.shutdown()
+
+            insertedCount = totalRecordsresult[0]['count']
+            print("totalRecordsresult--->",insertedCount)
+            await websocket.send_text(f"{insertedCount}")
+            print("sourceCount == insertedCount--->",sourceCount == insertedCount)
+
+            if sourceCount == insertedCount:
+                print("Data loaded. Closing WebSocket connection.")
+                await websocket.close()
+                break
+                # return totalRecordsresult
+        except Exception as e:
+            log.error("Error getting total inserted query. ERROR: ==> %s", str(e))
+            await websocket.send_text(f"error ocurred")
+            # return e
+        await asyncio.sleep(5)  # Wait for 5 seconds before checking again
+
+
+@router.websocket("/ws/load/progress/{baselookup}")
+async def progress_websocket_endpoint(baselookup: str, websocket: WebSocket, db_session: Session = Depends(get_db)):
+    await websocket.accept()
+    print("websocket manifest -->", baselookup)
+
+    try:
+        # count of data in source to be loaded
+        query = text(source_total_count(baselookup))
+        print("source query -->", query)
+
+        with db_session as session:
+            result = session.execute(query)
+            sourceCount = result.scalar()
+        print("source count -->", sourceCount)
+        while True:
+            data = await websocket.receive_text()
+            baseRepo = data
+            print("websocket manifest -->", baseRepo)
+            # await inserted_total_count(baselookup,sourceCount,websocket)
+            BackgroundTasks.add_task(inserted_total_count)
+    except WebSocketDisconnect:
+        log.error("Client disconnected")
+        await websocket.close()
+    except Exception as e:
+        log.error("Websocket error ==> %s", str(e))
+        await websocket.close()
