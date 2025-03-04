@@ -29,7 +29,7 @@ def upload_data(data):
             columns = ', '.join([sanitize_identifier(key) for key in record.keys()])
             placeholders = ', '.join(['%s'] * len(record))
             query = SimpleStatement(f"""
-                INSERT INTO {data.name}_CSV_EXTRACT (generated_id_unique, {columns})
+                INSERT INTO {sanitize_identifier(data.name)}_CSV_EXTRACT (generated_id_unique, {columns})
                 VALUES (%s, {placeholders})
             """)
             values = (uuid.uuid4(), *record.values())
