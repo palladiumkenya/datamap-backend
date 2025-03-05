@@ -39,6 +39,7 @@ def cassandra_session_factory():
 
     return session
 
+
 def execute_query(query):
 
     rows = _session.execute(query)

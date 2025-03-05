@@ -9,7 +9,6 @@ import requests
 import logging
 import settings
 from database import database
-from serializers.access_credentials_serializer import access_credential_list_entity
 from settings import settings
 from models.models import SiteConfig,TransmissionHistory,DataDictionaries
 

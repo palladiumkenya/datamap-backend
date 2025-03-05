@@ -3,7 +3,7 @@ import uuid
 from cassandra.cqlengine import columns
 from cassandra.cqlengine.models import Model
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class AccessCredentials(Model):
@@ -13,17 +13,18 @@ class AccessCredentials(Model):
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     conn_string = columns.Text(required=True)
     name = columns.Text(required=True)
+
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
     deleted_at = columns.DateTime(required=False)
 
     def save(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
 
     def update(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
 
 

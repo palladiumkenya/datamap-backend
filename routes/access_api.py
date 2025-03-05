@@ -1,13 +1,14 @@
 from urllib.parse import quote_plus
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
-from database import database
 from models.models import AccessCredentials, SiteConfig
 from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity, system_entity, \
     access_credential_entity
+from utils.csv_upload_handler import upload_data
 
 router = APIRouter()
 
@@ -44,6 +45,7 @@ async def active_connection():
 class SaveDBConnection(BaseModel):
     conn_string: str = Field(..., description="Type of the database (e.g., 'mysql', 'postgresql')")
     name: str = Field(..., description="Connection name")
+    conn_type: str = Field(..., description="Connection Type")
     system_id: str = Field(..., description="System ID")
 
 
@@ -54,10 +56,23 @@ async def add_connection(data: SaveDBConnection):
         for credential in credentials:
             credential.is_active = False
             credential.save()
-        AccessCredentials.create(conn_string=data.conn_string, name=data.name, system_id=data.system_id)
+        AccessCredentials.create(
+            conn_string=data.conn_string, name=data.name, system_id=data.system_id, conn_type=data.conn_type
+        )
         return {'success': True, 'message': 'Connection added successfully'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=e) from e
+
+
+class SaveCSVUploadData(BaseModel):
+    name: str = Field(..., description="Name of connection")
+    data: list = Field(..., description="")
+
+
+@router.post('/upload_csv')
+async def upload_csv(data: SaveCSVUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
+    background_tasks.add_task(upload_data, data)
+    return {'message': 'Upload started'}
 
 
 @router.delete('/delete_connection/{connection_id}')
