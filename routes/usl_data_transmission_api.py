@@ -99,7 +99,7 @@ async def manifest(baselookup:str):
             "session_id": uuid.uuid4(),
             "source_system_name": site_config['primary_system'],
             # "source_system_version": source_system['system_version'],
-            "source_system_version": 1,
+            "source_system_version": "1",
             "opendive_version": "1.0.0",
             "facility": site_config["site_code"]
         }
