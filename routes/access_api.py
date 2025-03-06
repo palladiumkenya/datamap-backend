@@ -8,7 +8,7 @@ from sqlalchemy.exc import OperationalError
 from models.models import AccessCredentials, SiteConfig
 from serializers.access_credentials_serializer import access_credential_list_entity, systems_list_entity, system_entity, \
     access_credential_entity
-from utils.csv_upload_handler import upload_data
+from utils.data_upload_handler import upload_data
 
 router = APIRouter()
 
@@ -67,9 +67,10 @@ async def add_connection(data: SaveDBConnection):
 class SaveCSVUploadData(BaseModel):
     name: str = Field(..., description="Name of connection")
     data: list = Field(..., description="")
+    upload: str = Field(..., description="the upload source", examples=["csv", "api"])
 
 
-@router.post('/upload_csv')
+@router.post('/upload_data')
 async def upload_csv(data: SaveCSVUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
     background_tasks.add_task(upload_data, data)
     return {'message': 'Upload started'}
