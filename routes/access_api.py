@@ -71,7 +71,7 @@ class SaveUploadData(BaseModel):
 
 
 @router.post('/upload_data')
-async def upload_csv(data: SaveUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
+async def upload_data_handler(data: SaveUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
     background_tasks.add_task(upload_data, data)
     return {'message': 'Upload started'}
 
