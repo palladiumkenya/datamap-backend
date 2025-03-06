@@ -64,14 +64,14 @@ async def add_connection(data: SaveDBConnection):
         raise HTTPException(status_code=500, detail=e) from e
 
 
-class SaveCSVUploadData(BaseModel):
+class SaveUploadData(BaseModel):
     name: str = Field(..., description="Name of connection")
     data: list = Field(..., description="")
     upload: str = Field(..., description="the upload source", examples=["csv", "api"])
 
 
 @router.post('/upload_data')
-async def upload_csv(data: SaveCSVUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
+async def upload_csv(data: SaveUploadData, background_tasks: BackgroundTasks = BackgroundTasks()):
     background_tasks.add_task(upload_data, data)
     return {'message': 'Upload started'}
 
