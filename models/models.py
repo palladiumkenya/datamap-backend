@@ -13,6 +13,8 @@ class AccessCredentials(Model):
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
     conn_string = columns.Text(required=True)
     name = columns.Text(required=True)
+    system_id = columns.UUID(required=True)
+    conn_type = columns.Text(required=True, default='mysql')
 
     is_active = columns.Boolean(required=True, default=True)
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
@@ -42,7 +44,6 @@ class MappedVariables(Model):
     created_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
     updated_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
     source_system_id = columns.UUID(default=uuid.uuid1)
-
 
     def save(self):
         self.updated_at = datetime.utcnow()
