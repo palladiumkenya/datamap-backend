@@ -8,6 +8,8 @@ from models.models import (AccessCredentials, MappedVariables, DataDictionaries,
 from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,
                                UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
 from database.user_db import UserBase, user_engine, SessionLocal
+from database import database
+
 from utils.user_utils import seed_default_user
 
 app = FastAPI()
@@ -57,6 +59,14 @@ app.include_router(site_configuration_api.router, tags=['Site Configuration'], p
 app.include_router(data_dictionary_usl_api.router, tags=['USL Data Dictionary'], prefix='/api/usl/data_dictionary')
 # TODO: MOVE READ TO ELSEWHERE
 # app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    cass_session = database.cassandra_session_factory()
+
+    cass_session.shutdown()
+    cass_session.cluster.shutdown()
 
 
 @app.get("/api/healthchecker")

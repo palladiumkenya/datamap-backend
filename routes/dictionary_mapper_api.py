@@ -47,7 +47,7 @@ def createEngine():
 
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-        if credentials:
+        if credentials and credentials["conn_type"] != "csv":
             # credentials = access_credential_list_entity(credentials)
             connection_string = credentials
             # engine = create_engine(connection_string[0]["conn_string"])
@@ -95,6 +95,8 @@ async def base_schemas():
 @router.get('/base_schema_variables/{baselookup}')
 async def base_schema_variables(baselookup: str):
     try:
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
         dictionary = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
         dictionary = data_dictionary_terms_list_entity(dictionary)
 
@@ -102,7 +104,8 @@ async def base_schema_variables(baselookup: str):
 
         base_variables = []
         for i in dictionary:
-            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup).allow_filtering()
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup,
+                                                     source_system_id=source_system['id']).allow_filtering()
 
             configs = mapped_variable_list_entity(configs)
 
@@ -131,7 +134,7 @@ async def base_variables_lookup(base_lookup: str):
         dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=base_lookup).all()
         base_variables = []
         for term in dictionary_terms:
-            base_variables.append({"term":term.term, "datatype":term.data_type})
+            base_variables.append({"term":term.term, "datatype":term.data_type, "is_required":term.is_required})
 
         return {"data":base_variables}
     except Exception as e:
@@ -166,20 +169,41 @@ async def get_database_columns():
         log.error('Error reflecting source database: --->')
         raise HTTPException(status_code=500, detail='Error reflecting source database')
 
+@router.get('/get_csv_columns')
+async def get_csv_columns(cass_session = Depends(database.cassandra_session_factory)):
+    credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+    print(credentials)
+    if credentials and credentials["conn_type"] == "csv":
+        try:
+            dbTablesAndColumns={}
+
+            query = f"SELECT column_name FROM system_schema.columns WHERE keyspace_name='datamap' AND " \
+                    f"table_name='{credentials['name'].lower()}_csv_extract'"
+            rows = cass_session.execute(query)
+            dbTablesAndColumns = [row["column_name"] for row in rows]
+
+            return dbTablesAndColumns
+        except Exception as e:
+            log.error('Error getting csv columns: --->', e)
+            raise HTTPException(status_code=500, detail='Error reflecting source database')
+    else:
+        log.error('Error getting csv columns: --->')
+        raise HTTPException(status_code=500, detail='Error getting csv columns')
 
 @router.post('/add_mapped_variables/{baselookup}')
 async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
         #delete existing configs for base repo
-        # MappedVariables.objects(base_repository=baselookup).delete()
-        existingMappings = MappedVariables.objects(base_repository=baselookup).all()
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        existingMappings = MappedVariables.objects(base_repository=baselookup,source_system_id=source_system['id']).all()
         for mapping in existingMappings:
             mapping.delete()
 
         for variableSet in variables:
             MappedVariables.create(tablename=variableSet["tablename"],columnname=variableSet["columnname"],
-                                                   datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
-                                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"], join_by=variableSet["join_by"])
+                                    datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
+                                    base_variable_mapped_to=variableSet["base_variable_mapped_to"],
+                                   join_by=variableSet["join_by"], source_system_id=source_system['id'])
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
@@ -188,7 +212,7 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
 @router.post('/test/mapped_variables/{baselookup}')
 async def test_mapped_variables(baselookup:str, variables:List[object], db_session: Session = Depends(get_db)):
     try:
-        extractQuery = text(generate_query(baselookup))
+        extractQuery = text(generate_test_query(baselookup, variables))
 
         with db_session as session:
             result = session.execute(extractQuery)
@@ -202,7 +226,8 @@ async def test_mapped_variables(baselookup:str, variables:List[object], db_sessi
 
         return {"data":list_of_issues}
     except Exception as e:
-        return {"status":500, "message":e}
+        # return {"status":500, "message":e
+        raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
 
 
 def validateMandatoryFields(baselookup:str, variables:List[object], processed_results:List[object]):
@@ -224,10 +249,44 @@ def validateMandatoryFields(baselookup:str, variables:List[object], processed_re
     return list_of_issues
 
 
+def generate_test_query(baselookup:str, variableSet:List[object]):
+    try:
+        mapped_columns = []
+        mapped_joins = []
+
+        primaryTableDetails = [mapping for mapping in variableSet if mapping["base_variable_mapped_to"] == 'PrimaryTableId']
+        for variableMapped in variableSet:
+            if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
+                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"] +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
+                if all(variableMapped["tablename"]+"." not in s for s in mapped_joins):
+                    if variableMapped["tablename"] != primaryTableDetails[0]['tablename']:
+                        mapped_joins.append(" LEFT JOIN "+variableMapped["tablename"] + " ON " +
+                        primaryTableDetails[0]["tablename"].strip() + "." + primaryTableDetails[0]["columnname"].strip() +
+                        " = " + variableMapped["tablename"].strip() + "." + variableMapped["join_by"].strip())
+
+        columns = ", ".join(mapped_columns)
+        joins = ", ".join(mapped_joins)
+
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+        mappedSiteCode = [mapping for mapping in variableSet if mapping["base_variable_mapped_to"] == 'FacilityID']
+
+        query = f"SELECT top 100 {columns} from {primaryTableDetails[0]['tablename']} {joins.replace(',','')}" \
+                f" where  {mappedSiteCode[0]['tablename']}.{mappedSiteCode[0]['columnname']} = {site_config['site_code']}"
+        log.info("++++++++++ Successfully generated query +++++++++++")
+        return query
+    except Exception as e:
+        log.error("Error generating query. ERROR: ==> %s", str(e))
+
+        return e
+
+
 @router.get('/generate_config/{baselookup}')
 async def generate_config(baselookup:str):
     try:
-        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        configs = MappedVariables.objects.filter(base_repository=baselookup,
+                                                 source_system_id=source_system['id']).allow_filtering()
         configs = mapped_variable_list_entity(configs)
 
         results = []
@@ -248,10 +307,10 @@ async def generate_config(baselookup:str):
 
 
 @router.get('/import_config/{baselookup}')
-async def import_config(baselookup:str):
+async def import_config(baselookup:str, cass_session = Depends(database.cassandra_session_factory)):
     try:
         # delete existing configs for base repo
-        cass_session = database.cassandra_session_factory()
+        # cass_session = database.cassandra_session_factory()
 
         query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
         existingVariables = cass_session.execute(query)
@@ -281,10 +340,13 @@ async def import_config(baselookup:str):
 # @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup:str):
     try:
-        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        configs = MappedVariables.objects.filter(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering()
         configs = mapped_variable_list_entity(configs)
 
-        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
+        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId',
+                                                             source_system_id=source_system['id']).allow_filtering().first()
 
         mapped_columns = []
         mapped_joins = []
@@ -300,9 +362,12 @@ def generate_query(baselookup:str):
         columns = ", ".join(mapped_columns)
         joins = ", ".join(mapped_joins)
 
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+        mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID',
+                                                        source_system_id=source_system['id']).allow_filtering().first()
 
-        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}"
-
+        query = f"SELECT top 100 {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}" \
+                f" where  {mappedSiteCode['tablename']}.{mappedSiteCode['columnname']} = {site_config['site_code']}"
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
@@ -332,11 +397,11 @@ def convert_datetime_to_iso(data):
 
 
 @router.get('/load_data/{baselookup}')
-async def load_data(baselookup:str, db_session: Session = Depends(get_db)):
+async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_session = Depends(database.cassandra_session_factory)):
     try:
         query = text(generate_query(baselookup))
 
-        cass_session = database.cassandra_session_factory()
+        # cass_session = database.cassandra_session_factory()
 
         # started loading
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
