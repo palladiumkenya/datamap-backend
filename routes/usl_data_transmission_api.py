@@ -100,7 +100,9 @@ async def manifest(baselookup:str):
             # "source_system_version": source_system['system_version'],
             "source_system_version": "1",
             "opendive_version": "1.0.0",
-            "facility": site_config["site_code"]
+            "facility_name": site_config["site_name"],
+            "facility_id": site_config["site_code"]
+
         }
 
         cass_session.cluster.shutdown()

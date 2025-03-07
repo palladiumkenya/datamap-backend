@@ -95,6 +95,8 @@ async def base_schemas():
 @router.get('/base_schema_variables/{baselookup}')
 async def base_schema_variables(baselookup: str):
     try:
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
         dictionary = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
         dictionary = data_dictionary_terms_list_entity(dictionary)
 
@@ -102,7 +104,8 @@ async def base_schema_variables(baselookup: str):
 
         base_variables = []
         for i in dictionary:
-            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup).allow_filtering()
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup,
+                                                     source_system_id=source_system['id']).allow_filtering()
 
             configs = mapped_variable_list_entity(configs)
 
@@ -265,7 +268,6 @@ def generate_test_query(baselookup:str, variableSet:List[object]):
         joins = ", ".join(mapped_joins)
 
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
-        # mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID').allow_filtering().first()
         mappedSiteCode = [mapping for mapping in variableSet if mapping["base_variable_mapped_to"] == 'FacilityID']
 
         query = f"SELECT top 100 {columns} from {primaryTableDetails[0]['tablename']} {joins.replace(',','')}" \
@@ -281,7 +283,10 @@ def generate_test_query(baselookup:str, variableSet:List[object]):
 @router.get('/generate_config/{baselookup}')
 async def generate_config(baselookup:str):
     try:
-        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        configs = MappedVariables.objects.filter(base_repository=baselookup,
+                                                 source_system_id=source_system['id']).allow_filtering()
         configs = mapped_variable_list_entity(configs)
 
         results = []
@@ -358,11 +363,11 @@ def generate_query(baselookup:str):
         joins = ", ".join(mapped_joins)
 
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
-        mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID').allow_filtering().first()
+        mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID',
+                                                        source_system_id=source_system['id']).allow_filtering().first()
 
         query = f"SELECT top 100 {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}" \
                 f" where  {mappedSiteCode['tablename']}.{mappedSiteCode['columnname']} = {site_config['site_code']}"
-        print("query generated -->",query)
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
