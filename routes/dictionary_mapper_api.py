@@ -401,8 +401,6 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_
     try:
         query = text(generate_query(baselookup))
 
-        # cass_session = database.cassandra_session_factory()
-
         # started loading
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
@@ -419,34 +417,40 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            # processed_results = [convert_datetime_to_iso(convert_none_to_null(result)) for result in baseRepoLoaded]
             processed_results=[result for result in baseRepoLoaded]
 
-            batch = BatchStatement()
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
-            for data in processed_results:
-                quoted_values = [
-                    'NULL' if value is None
-                    else f"'{value}'" if isinstance(value, str)
-                    else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-                    else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
-                    else str(value)
-                    for key, value in data.items()
-                ]
+            # for data in processed_results:
+            batch_size = 20
+            for i in range(0, len(processed_results), batch_size):
+                batch = processed_results[i:i + batch_size]
+                batch_stmt = BatchStatement()
+                for data in batch:
 
-                idColumn = baselookup + "_id"
+                    quoted_values = [
+                        'NULL' if value is None
+                        else f"'{value}'" if isinstance(value, str)
+                        else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
+                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
+                        else str(value)
+                        for key, value in data.items()
+                    ]
 
-                query = f"""
-                           INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
-                           VALUES (uuid(), {', '.join(quoted_values)})
-                       """
-                log.info("+++++++ data +++++++")
+                    idColumn = baselookup + "_id"
 
-                cass_session.execute(query)
-                # Add multiple insert statements to the batch
-                # batch.add(query)
+                    query = f"""
+                               INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
+                               VALUES (uuid(), {', '.join(quoted_values)})
+                           """
+
+                    prepared_stm = cass_session.prepare(query)
+                    batch_stmt.add(prepared_stm)
+                cass_session.execute(batch_stmt)
+                log.info("+++++++ data batch +++++++", batch)
+                log.info("+++++++ data i +++++++", i)
+
             # cass_session.execute(batch)
-            log.info("+++++++ batch saved +++++++")
+            log.info("+++++++ USL Base Repository Data saved +++++++")
 
             # end batch
             cass_session.cluster.shutdown()
