@@ -1,12 +1,13 @@
 import re
 
-from fastapi import  Depends, HTTPException
+from fastapi import  Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import create_engine, inspect, MetaData, Table,text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
 # from datetime import datetime
+from contextlib import contextmanager
 
 import json
 from fastapi import APIRouter
@@ -63,7 +64,7 @@ def createEngine():
         log.error('===== Database not reflected ==== ERROR:', str(e))
         raise HTTPException(status_code=500, detail="Database connection error"+str(e))
 
-
+@contextmanager
 def get_db():
     db_session = SessionLocal()
     try:
@@ -396,10 +397,13 @@ def convert_datetime_to_iso(data):
         return data
 
 
-@router.get('/load_data/{baselookup}')
-async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_session = Depends(database.cassandra_session_factory)):
+# @router.get('/load_data/{baselookup}')
+async def load_data(baselookup:str, websocket: WebSocket):
     try:
-        query = text(generate_query(baselookup))
+        cass_session = database.cassandra_session_factory()
+
+        extract_source_data_query = text(generate_query(baselookup))
+        source_data_count_query = text(source_total_count(baselookup))
 
         # started loading
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
@@ -411,8 +415,11 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_
                             ended_at=None,
                             manifest_id=None).save()
 
-        with db_session as session:
-            result = session.execute(query)
+        with get_db() as session:
+            get_count = session.execute(source_data_count_query)
+            source_count = get_count.scalar()
+
+            result = session.execute(extract_source_data_query)
 
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
@@ -421,6 +428,7 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_
 
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             # for data in processed_results:
+            count_inserted = 0
             batch_size = 20
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]
@@ -446,22 +454,25 @@ async def load_data(baselookup:str, db_session: Session = Depends(get_db), cass_
                     prepared_stm = cass_session.prepare(query)
                     batch_stmt.add(prepared_stm)
                 cass_session.execute(batch_stmt)
-                log.info("+++++++ data batch +++++++", batch)
-                log.info("+++++++ data i +++++++", i)
+
+                count_inserted += batch_size
+                await websocket.send_text(f"{count_inserted}")
+                log.info("+++++++ data batch +++++++")
+                log.info("+++++++ step i : count_inserted +++++++", count_inserted)
 
             # cass_session.execute(batch)
             log.info("+++++++ USL Base Repository Data saved +++++++")
 
-            # end batch
-            cass_session.cluster.shutdown()
+        # end batch
+        cass_session.cluster.shutdown()
+        await websocket.close()
+        # ended loading
+        # loadedHistory.ended_at=datetime.utcnow()
+        # loadedHistory.save()
+        # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
-            # ended loading
-            # loadedHistory.ended_at=datetime.utcnow()
-            # loadedHistory.save()
-            # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
-
-            # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
-            return {"data": baseRepoLoaded}
+        # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
+        return {"data": baseRepoLoaded}
     except Exception as e:
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
@@ -490,3 +501,65 @@ def is_valid_regex(pattern):
         return True
     except re.error:
         return False
+
+def source_total_count(baselookup:str):
+    try:
+        configs = MappedVariables.objects.filter(base_repository=baselookup).allow_filtering()
+        configs = mapped_variable_list_entity(configs)
+
+        primaryTableDetails = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='PrimaryTableId').allow_filtering().first()
+
+        mapped_columns = []
+        mapped_joins = []
+
+        for conf in configs:
+            if conf["base_variable_mapped_to"] != 'PrimaryTableId':
+                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
+                if all(conf["tablename"]+"." not in s for s in mapped_joins):
+                    if conf["tablename"] != primaryTableDetails['tablename']:
+                        mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
+                        " = " + conf["tablename"].strip() + "." + conf["join_by"].strip())
+
+        columns = ", ".join(mapped_columns)
+        joins = ", ".join(mapped_joins)
+
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+        mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID',
+                                                        source_system_id=source_system['id']).allow_filtering().first()
+
+        query = f"SELECT count(*) as count from {primaryTableDetails['tablename']} {joins.replace(',','')}" \
+                f" where  {mappedSiteCode['tablename']}.{mappedSiteCode['columnname']} = {site_config['site_code']}"
+
+        log.info("++++++++++ Successfully generated count query +++++++++++")
+        return query
+    except Exception as e:
+        log.error("Error generating query. ERROR: ==> %s", str(e))
+
+        return e
+@router.websocket("/ws/load/progress/{baselookup}")
+async def progress_websocket_endpoint(baselookup: str, websocket: WebSocket, db_session: Session = Depends(get_db)):
+    await websocket.accept()
+    print("websocket manifest -->", baselookup)
+
+    try:
+        # count of data in source to be loaded
+        query = text(source_total_count(baselookup))
+        print("source query -->", query)
+
+        with db_session as session:
+            result = session.execute(query)
+            sourceCount = result.scalar()
+        print("source count -->", sourceCount)
+        while True:
+            data = await websocket.receive_text()
+            baseRepo = data
+            print("websocket manifest -->", baseRepo)
+            await load_data(baselookup,websocket)
+            # BackgroundTasks.add_task(inserted_total_count(baselookup,sourceCount,websocket))
+    except WebSocketDisconnect:
+        log.error("Client disconnected")
+        await websocket.close()
+    except Exception as e:
+        log.error("Websocket error ==> %s", str(e))
+        await websocket.close()
