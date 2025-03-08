@@ -458,13 +458,18 @@ async def load_data(baselookup:str, websocket: WebSocket):
                 count_inserted += batch_size
                 await websocket.send_text(f"{count_inserted}")
                 log.info("+++++++ data batch +++++++")
-                log.info("+++++++ step i : count_inserted +++++++", count_inserted)
+                log.info(f"+++++++ step i : count_inserted +++++++ {count_inserted} records")
 
             # cass_session.execute(batch)
             log.info("+++++++ USL Base Repository Data saved +++++++")
 
         # end batch
         cass_session.cluster.shutdown()
+        # baseRepoLoaded_json_data = json.dumps(baseRepoLoaded)
+        baseRepoLoaded_json_data = json.dumps(baseRepoLoaded, default=str)
+
+        # Send the JSON string over the WebSocket
+        await websocket.send_text(baseRepoLoaded_json_data)
         await websocket.close()
         # ended loading
         # loadedHistory.ended_at=datetime.utcnow()
