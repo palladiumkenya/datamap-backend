@@ -271,7 +271,7 @@ def generate_test_query(baselookup:str, variableSet:List[object]):
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
         mappedSiteCode = [mapping for mapping in variableSet if mapping["base_variable_mapped_to"] == 'FacilityID']
 
-        query = f"SELECT top 100 {columns} from {primaryTableDetails[0]['tablename']} {joins.replace(',','')}" \
+        query = f"SELECT {columns} from {primaryTableDetails[0]['tablename']} {joins.replace(',','')}" \
                 f" where  {mappedSiteCode[0]['tablename']}.{mappedSiteCode[0]['columnname']} = {site_config['site_code']}"
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -367,7 +367,7 @@ def generate_query(baselookup:str):
         mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID',
                                                         source_system_id=source_system['id']).allow_filtering().first()
 
-        query = f"SELECT top 100 {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}" \
+        query = f"SELECT {columns} from {primaryTableDetails['tablename']} {joins.replace(',','')}" \
                 f" where  {mappedSiteCode['tablename']}.{mappedSiteCode['columnname']} = {site_config['site_code']}"
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
@@ -429,7 +429,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
             cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
             # for data in processed_results:
             count_inserted = 0
-            batch_size = 20
+            batch_size = 100
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]
                 batch_stmt = BatchStatement()
@@ -453,9 +453,12 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     prepared_stm = cass_session.prepare(query)
                     batch_stmt.add(prepared_stm)
+                    # add up records
+                    count_inserted += 1
+
                 cass_session.execute(batch_stmt)
 
-                count_inserted += batch_size
+                # count_inserted = inserted_total_count(baselookup)
                 await websocket.send_text(f"{count_inserted}")
                 log.info("+++++++ data batch +++++++")
                 log.info(f"+++++++ step i : count_inserted +++++++ {count_inserted} records")
@@ -542,6 +545,23 @@ def source_total_count(baselookup:str):
         log.error("Error generating query. ERROR: ==> %s", str(e))
 
         return e
+
+def inserted_total_count(baselookup:str):
+    try:
+        cass_session = database.cassandra_session_factory()
+
+        totalRecordsquery = f"SELECT COUNT(*) as count FROM {baselookup}"
+        totalRecordsresult = cass_session.execute(totalRecordsquery)
+        cass_session.cluster.shutdown()
+
+        insertedCount = totalRecordsresult[0]['count']
+        print("insertedCount--->",insertedCount)
+
+        return insertedCount
+    except Exception as e:
+        log.error("Error getting total inserted query. ERROR: ==> %s", str(e))
+        return 0
+
 @router.websocket("/ws/load/progress/{baselookup}")
 async def progress_websocket_endpoint(baselookup: str, websocket: WebSocket, db_session: Session = Depends(get_db)):
     await websocket.accept()
