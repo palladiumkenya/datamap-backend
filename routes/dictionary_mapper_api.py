@@ -196,7 +196,7 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
     try:
         #delete existing configs for base repo
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-        existingMappings = MappedVariables.objects(base_repository=baselookup,source_system_id=source_system['id']).all()
+        existingMappings = MappedVariables.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().all()
         for mapping in existingMappings:
             mapping.delete()
 
