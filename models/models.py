@@ -45,7 +45,6 @@ class MappedVariables(Model):
     updated_at = columns.DateTime(required=True, default=datetime.utcnow(),index=True)
     source_system_id = columns.UUID(default=uuid.uuid1)
 
-
     def save(self):
         self.updated_at = datetime.utcnow()
         super().save()
