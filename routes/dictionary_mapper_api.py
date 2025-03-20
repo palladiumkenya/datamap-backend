@@ -214,7 +214,7 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
                                    join_by=variableSet["join_by"], source_system_id=source_system['id'])
 
         # after saving mappings, generate query from them and save
-        extract_source_data_query = text(generate_query(baselookup))
+        extract_source_data_query = generate_query(baselookup)
 
         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
                                                 source_system_id=source_system['id']).allow_filtering().first()
@@ -228,7 +228,7 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
                                    base_repository=baselookup,
                                    source_system_id=source_system['id'])
 
-        return {"status":200, "message":"Mapped Variables added"}
+        return {"data":"Successfully added Mapped Variables"}
     except Exception as e:
         return {"status":500, "message":e}
 
@@ -238,6 +238,22 @@ async def add_query(baselookup:str, customquery:QueryModel):
     try:
         #update existing configs for base repo
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering().all()
+
+        # add blank mappings
+        existingMappings = MappedVariables.objects(base_repository=baselookup,
+                                                   source_system_id=source_system['id']).allow_filtering().all()
+        for mapping in existingMappings:
+            mapping.delete()
+
+        for variable in dictTerms:
+            MappedVariables.create(tablename="-", columnname="-",
+                                   datatype="-", base_repository=baselookup,
+                                   base_variable_mapped_to=variable["term"],
+                                   join_by="-", source_system_id=source_system['id'])
+
+        # add custom query
         existingQuery = ExtractsQueries.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().first()
         if existingQuery:
             ExtractsQueries.objects(id=existingQuery["id"]).update(
@@ -365,62 +381,86 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
 
 
 
-
-@router.get('/generate_config/{baselookup}')
-async def generate_config(baselookup:str):
-    try:
-        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-
-        configs = MappedVariables.objects.filter(base_repository=baselookup,
-                                                 source_system_id=source_system['id']).allow_filtering()
-        configs = mapped_variable_list_entity(configs)
-
-        results = []
-        for row in configs:
-            results.append(row)
-
-        with open('configs/schemas/'+baselookup +'.conf', 'w') as f:
-            f.write(str(results))
-
-        log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
-        return 'success'
-    except Exception as e:
-        log.error("Error generating config ==> %s", str(e))
-
-        return e
-
-
-
-
-@router.get('/import_config/{baselookup}')
-async def import_config(baselookup:str, cass_session = Depends(database.cassandra_session_factory)):
-    try:
-        # delete existing configs for base repo
-        # cass_session = database.cassandra_session_factory()
-
-        query = "SELECT *  FROM mapped_variables WHERE base_repository='%s' ALLOW FILTERING;" % (baselookup)
-        existingVariables = cass_session.execute(query)
-
-        for var in existingVariables:
-            MappedVariables.objects(id=var["id"]).delete()
-
-        f = open('configs/schemas/'+baselookup +'.conf', 'r')
-
-        configImportStatements = f.read()
-        configs = json.loads(configImportStatements.replace("'", '"'))
-        for conf in configs:
-            MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
-                                      datatype=conf["datatype"], base_repository=conf["base_repository"],
-                                      base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
-
-        f.close()
-        log.info("+++++++++ Successfully imported config ++++++++++")
-
-        return 'success'
-    except Exception as e:
-        log.error("Error importing config ==> %s", str(e))
-
-        return e
+#
+# @router.get('/generate_config/{baselookup}')
+# async def generate_config(baselookup:str):
+#     try:
+#         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+#
+#         # get mappings
+#         configs = MappedVariables.objects.filter(base_repository=baselookup,
+#                                                  source_system_id=source_system['id']).allow_filtering()
+#         configs = mapped_variable_list_entity(configs)
+#
+#         # get query
+#         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
+#                                                 source_system_id=source_system['id']).allow_filtering().first()
+#
+#         mappings = []
+#         for row in configs:
+#             mappings.append(row)
+#
+#         generatedConfig = {
+#                             "base_repository":existingQuery["base_repository"],
+#                            "query":existingQuery["query"],
+#                            "mappings":mappings
+#                            }
+#
+#         with open('configs/schemas/'+baselookup +'.conf', 'w') as f:
+#             f.write(str(generatedConfig))
+#
+#         log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
+#         return 'success'
+#     except Exception as e:
+#         log.error("Error generating config ==> %s", str(e))
+#
+#         return e
+#
+#
+#
+#
+# @router.get('/import_config/{baselookup}')
+# async def import_config(baselookup:str):
+#     try:
+#         # clear existing mappings
+#         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+#         existingMappings = MappedVariables.objects(base_repository=baselookup,
+#                                                    source_system_id=source_system['id']).allow_filtering().all()
+#         for mapping in existingMappings:
+#             mapping.delete()
+#
+#         f = open('configs/schemas/'+baselookup +'.conf', 'r')
+#
+#         configImportStatements = f.read()
+#         configs = json.loads(configImportStatements.replace("'", '"'))
+#
+#         # add the mappings
+#         for conf in configs["mappings"]:
+#             MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
+#                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
+#                                       base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
+#
+#         # add the query
+#         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
+#                                                 source_system_id=source_system['id']).allow_filtering().first()
+#
+#         if existingQuery:
+#             ExtractsQueries.objects(id=existingQuery["id"]).update(
+#                 query=configs["query"]
+#             )
+#         else:
+#             ExtractsQueries.create(query=configs["query"],
+#                                    base_repository=configs["base_repository"],
+#                                    source_system_id=source_system['id'])
+#
+#         f.close()
+#         log.info("+++++++++ Successfully imported config ++++++++++")
+#
+#         return 'success'
+#     except Exception as e:
+#         log.error("Error importing config ==> %s", str(e))
+#
+#         return e
 
 
 # @router.get('/generate-query/{baselookup}')
@@ -439,7 +479,7 @@ def generate_query(baselookup:str):
 
         for conf in configs:
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as '"+conf["base_variable_mapped_to"]+"' ")
+                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as "+conf["base_variable_mapped_to"]+" ")
                 if all(conf["tablename"]+"." not in s for s in mapped_joins):
                     if conf["tablename"] != primaryTableDetails['tablename']:
                         mapped_joins.append(" LEFT JOIN "+conf["tablename"] + " ON " + primaryTableDetails["tablename"].strip() + "." + primaryTableDetails["columnname"].strip() +
@@ -515,11 +555,6 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
-            # baseRepoLoaded = [{key: (str(value) if isinstance(value, uuid.UUID)
-            #                         else value.strftime('%Y-%m-%d') if isinstance(value, datetime.date)  # Convert date to string
-            #                         else int(value) if int(value)  # Convert date to string
-            #                         else value) for key, value in
-            #                         row.items()} for row in result]
 
             processed_results=[result for result in baseRepoLoaded]
 
