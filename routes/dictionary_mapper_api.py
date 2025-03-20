@@ -8,6 +8,7 @@ from cassandra.query import BatchStatement
 import datetime
 # from datetime import datetime
 from contextlib import contextmanager
+from pydantic import BaseModel
 
 import json
 from fastapi import APIRouter
@@ -16,11 +17,16 @@ from typing import List
 import logging
 
 import settings
-from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,TransmissionHistory
+from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,\
+    TransmissionHistory, ExtractsQueries
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
 from settings import settings
+
+
+class QueryModel(BaseModel):
+    query: str
 
 
 log = logging.getLogger()
@@ -205,9 +211,44 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
                                     datatype=variableSet["datatype"], base_repository=variableSet["base_repository"],
                                     base_variable_mapped_to=variableSet["base_variable_mapped_to"],
                                    join_by=variableSet["join_by"], source_system_id=source_system['id'])
+
+        # after saving mappings, generate query from them and save
+        extract_source_data_query = text(generate_query(baselookup))
+
+        existingQuery = ExtractsQueries.objects(base_repository=baselookup,
+                                                source_system_id=source_system['id']).allow_filtering().first()
+
+        if existingQuery:
+            ExtractsQueries.objects(id=existingQuery["id"]).update(
+                query=extract_source_data_query
+            )
+        else:
+            ExtractsQueries.create(query=extract_source_data_query,
+                                   base_repository=baselookup,
+                                   source_system_id=source_system['id'])
+
         return {"status":200, "message":"Mapped Variables added"}
     except Exception as e:
         return {"status":500, "message":e}
+
+
+@router.post('/add_query/{baselookup}')
+async def add_query(baselookup:str, customquery:QueryModel):
+    try:
+        #update existing configs for base repo
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        existingQuery = ExtractsQueries.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().first()
+        if existingQuery:
+            ExtractsQueries.objects(id=existingQuery["id"]).update(
+                query=customquery.query
+            )
+        else:
+            ExtractsQueries.create(query=customquery.query,
+                                     base_repository=baselookup,
+                                       source_system_id=source_system['id'])
+        return {"data":"Custom Query for Variables successfully added"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error adding query for source system:" + str(e))
 
 
 @router.post('/test/mapped_variables/{baselookup}')
@@ -279,6 +320,49 @@ def generate_test_query(baselookup:str, variableSet:List[object]):
         log.error("Error generating query. ERROR: ==> %s", str(e))
 
         return e
+
+
+@router.post('/test/query/mapped_variables/{baselookup}')
+async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db_session: Session = Depends(get_db)):
+    try:
+        list_of_issues = []
+
+        dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
+        dictionary_terms = data_dictionary_terms_list_entity(dictionary_terms)
+        terms_list = [term["term"] for term in dictionary_terms]
+
+        with db_session as session:
+            result = session.execute(text(customquery.query))
+
+            columnsProvided = result.keys()# columns provided in query
+            baseRepoLoaded = [dict(zip(columnsProvided, row)) for row in result]
+
+            processed_results = [result for result in baseRepoLoaded]
+
+            # check if base variable terms are all in the columns provided in the custom query
+            for variable in terms_list:
+                if variable not in columnsProvided:
+                    issueObj = {"base_variable": "?",
+                                "issue": "*Variable is missing but is expected in the list of base variables.",
+                                "column_mapped": variable,
+                                "recommended_solution": "Ensure all expected base variables are in the query provided"}
+                    list_of_issues.append(issueObj)
+
+            # check for any unnecessary columns provided in query that are not base variable terms
+            for variable in columnsProvided:
+                if variable not in terms_list:
+                    issueObj = {"base_variable": "?",
+                                "issue": "*Variable is not part of the expected base variables.",
+                                "column_mapped": variable,
+                                "recommended_solution": "Ensure only variables that are listed as base variables are in the query provided"}
+                    list_of_issues.append(issueObj)
+
+        return {"data":list_of_issues}
+    except Exception as e:
+        # return {"status":500, "message":e
+        raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
+
+
 
 
 @router.get('/generate_config/{baselookup}')
@@ -402,12 +486,19 @@ async def load_data(baselookup:str, websocket: WebSocket):
     try:
         cass_session = database.cassandra_session_factory()
 
-        extract_source_data_query = text(generate_query(baselookup))
+        # system config data
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+
+        # extract_source_data_query = text(generate_query(baselookup))
+        existingQuery = ExtractsQueries.objects(base_repository=baselookup,
+                                                source_system_id=source_system['id']).allow_filtering().first()
+        extract_source_data_query = text(existingQuery["query"])
+
         source_data_count_query = text(source_total_count(baselookup))
 
         # started loading
-        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                             facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
                             source_system_id=source_system['id'],
