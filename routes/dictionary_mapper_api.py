@@ -9,6 +9,7 @@ import datetime
 # from datetime import datetime
 from contextlib import contextmanager
 from pydantic import BaseModel
+import uuid
 
 import json
 from fastapi import APIRouter
@@ -495,7 +496,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
                                                 source_system_id=source_system['id']).allow_filtering().first()
         extract_source_data_query = text(existingQuery["query"])
 
-        source_data_count_query = text(source_total_count(baselookup))
+        # source_data_count_query = text(source_total_count(baselookup))
 
         # started loading
 
@@ -507,13 +508,18 @@ async def load_data(baselookup:str, websocket: WebSocket):
                             manifest_id=None).save()
 
         with get_db() as session:
-            get_count = session.execute(source_data_count_query)
-            source_count = get_count.scalar()
+            # get_count = session.execute(source_data_count_query)
+            # source_count = get_count.scalar()
 
             result = session.execute(extract_source_data_query)
 
             columns = result.keys()
             baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+            # baseRepoLoaded = [{key: (str(value) if isinstance(value, uuid.UUID)
+            #                         else value.strftime('%Y-%m-%d') if isinstance(value, datetime.date)  # Convert date to string
+            #                         else int(value) if int(value)  # Convert date to string
+            #                         else value) for key, value in
+            #                         row.items()} for row in result]
 
             processed_results=[result for result in baseRepoLoaded]
 
@@ -528,9 +534,11 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     quoted_values = [
                         'NULL' if value is None
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()[ "data_type"] == "INT")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
                         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
+                        # else int(value) if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "INT")
                         else str(value)
                         for key, value in data.items()
                     ]
@@ -541,7 +549,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
                                INSERT INTO {baselookup} ({idColumn}, {", ".join(tuple(data.keys()))})
                                VALUES (uuid(), {', '.join(quoted_values)})
                            """
-
+                    print("query -->", query)
                     prepared_stm = cass_session.prepare(query)
                     batch_stmt.add(prepared_stm)
                     # add up records
@@ -659,20 +667,12 @@ async def progress_websocket_endpoint(baselookup: str, websocket: WebSocket, db_
     print("websocket manifest -->", baselookup)
 
     try:
-        # count of data in source to be loaded
-        query = text(source_total_count(baselookup))
-        print("source query -->", query)
 
-        with db_session as session:
-            result = session.execute(query)
-            sourceCount = result.scalar()
-        print("source count -->", sourceCount)
         while True:
             data = await websocket.receive_text()
             baseRepo = data
             print("websocket manifest -->", baseRepo)
             await load_data(baselookup,websocket)
-            # BackgroundTasks.add_task(inserted_total_count(baselookup,sourceCount,websocket))
     except WebSocketDisconnect:
         log.error("Client disconnected")
         await websocket.close()
