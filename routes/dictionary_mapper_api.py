@@ -6,7 +6,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 from cassandra.query import BatchStatement
 import datetime
-# from datetime import datetime
 from contextlib import contextmanager
 from pydantic import BaseModel
 import uuid
@@ -56,9 +55,7 @@ def createEngine():
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials and credentials["conn_type"] != "csv":
-            # credentials = access_credential_list_entity(credentials)
             connection_string = credentials
-            # engine = create_engine(connection_string[0]["conn_string"])
             engine = create_engine(connection_string["conn_string"])
 
             inspector = inspect(engine)
@@ -376,94 +373,9 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
 
         return {"data":list_of_issues}
     except Exception as e:
-        # return {"status":500, "message":e
         raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
 
 
-
-#
-# @router.get('/generate_config/{baselookup}')
-# async def generate_config(baselookup:str):
-#     try:
-#         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-#
-#         # get mappings
-#         configs = MappedVariables.objects.filter(base_repository=baselookup,
-#                                                  source_system_id=source_system['id']).allow_filtering()
-#         configs = mapped_variable_list_entity(configs)
-#
-#         # get query
-#         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
-#                                                 source_system_id=source_system['id']).allow_filtering().first()
-#
-#         mappings = []
-#         for row in configs:
-#             mappings.append(row)
-#
-#         generatedConfig = {
-#                             "base_repository":existingQuery["base_repository"],
-#                            "query":existingQuery["query"],
-#                            "mappings":mappings
-#                            }
-#
-#         with open('configs/schemas/'+baselookup +'.conf', 'w') as f:
-#             f.write(str(generatedConfig))
-#
-#         log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
-#         return 'success'
-#     except Exception as e:
-#         log.error("Error generating config ==> %s", str(e))
-#
-#         return e
-#
-#
-#
-#
-# @router.get('/import_config/{baselookup}')
-# async def import_config(baselookup:str):
-#     try:
-#         # clear existing mappings
-#         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-#         existingMappings = MappedVariables.objects(base_repository=baselookup,
-#                                                    source_system_id=source_system['id']).allow_filtering().all()
-#         for mapping in existingMappings:
-#             mapping.delete()
-#
-#         f = open('configs/schemas/'+baselookup +'.conf', 'r')
-#
-#         configImportStatements = f.read()
-#         configs = json.loads(configImportStatements.replace("'", '"'))
-#
-#         # add the mappings
-#         for conf in configs["mappings"]:
-#             MappedVariables.create(tablename=conf["tablename"], columnname=conf["columnname"],
-#                                       datatype=conf["datatype"], base_repository=conf["base_repository"],
-#                                       base_variable_mapped_to=conf["base_variable_mapped_to"], join_by=conf["join_by"])
-#
-#         # add the query
-#         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
-#                                                 source_system_id=source_system['id']).allow_filtering().first()
-#
-#         if existingQuery:
-#             ExtractsQueries.objects(id=existingQuery["id"]).update(
-#                 query=configs["query"]
-#             )
-#         else:
-#             ExtractsQueries.create(query=configs["query"],
-#                                    base_repository=configs["base_repository"],
-#                                    source_system_id=source_system['id'])
-#
-#         f.close()
-#         log.info("+++++++++ Successfully imported config ++++++++++")
-#
-#         return 'success'
-#     except Exception as e:
-#         log.error("Error importing config ==> %s", str(e))
-#
-#         return e
-
-
-# @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup:str):
     try:
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
@@ -522,7 +434,6 @@ def convert_datetime_to_iso(data):
         return data
 
 
-# @router.get('/load_data/{baselookup}')
 async def load_data(baselookup:str, websocket: WebSocket):
     try:
         cass_session = database.cassandra_session_factory()
@@ -536,9 +447,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
                                                 source_system_id=source_system['id']).allow_filtering().first()
         extract_source_data_query = text(existingQuery["query"])
 
-        # source_data_count_query = text(source_total_count(baselookup))
-
-        # started loading
+        # ------ started loading -------
 
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                             facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
@@ -548,8 +457,6 @@ async def load_data(baselookup:str, websocket: WebSocket):
                             manifest_id=None).save()
 
         with get_db() as session:
-            # get_count = session.execute(source_data_count_query)
-            # source_count = get_count.scalar()
 
             result = session.execute(extract_source_data_query)
 
@@ -573,7 +480,6 @@ async def load_data(baselookup:str, websocket: WebSocket):
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
                         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
-                        # else int(value) if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "INT")
                         else str(value)
                         for key, value in data.items()
                     ]
@@ -592,23 +498,21 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                 cass_session.execute(batch_stmt)
 
-                # count_inserted = inserted_total_count(baselookup)
                 await websocket.send_text(f"{count_inserted}")
                 log.info("+++++++ data batch +++++++")
                 log.info(f"+++++++ step i : count_inserted +++++++ {count_inserted} records")
 
-            # cass_session.execute(batch)
             log.info("+++++++ USL Base Repository Data saved +++++++")
 
         # end batch
         cass_session.cluster.shutdown()
-        # baseRepoLoaded_json_data = json.dumps(baseRepoLoaded)
         baseRepoLoaded_json_data = json.dumps(baseRepoLoaded, default=str)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
         await websocket.close()
         # ended loading
+        # TO DO - update history
         # loadedHistory.ended_at=datetime.utcnow()
         # loadedHistory.save()
         # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
