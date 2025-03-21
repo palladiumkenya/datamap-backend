@@ -50,15 +50,14 @@ class MappedVariables(Model):
         super().save()
 
 
-class IndicatorQueries(Model):
+class ExtractsQueries(Model):
     __keyspace__ = 'datamap'
-    __table_name__ = 'indicator_queries'
+    __table_name__ = 'extract_queries'
 
     id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    indicator = columns.Text(required=True)
+    base_repository = columns.Text(required=True)
     query = columns.Text(required=True)
-    indicator_value = columns.Text(required=True, default="0")
-    indicator_date = columns.DateTime(required=True, default=datetime.utcnow())
+    source_system_id = columns.UUID(required=True)
 
     created_at = columns.DateTime(required=True, default=datetime.utcnow())
     updated_at = columns.DateTime(required=True, default=datetime.utcnow())
