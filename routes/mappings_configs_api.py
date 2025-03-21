@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import uuid
 
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter,HTTPException
 from typing import List
 
 import logging
@@ -61,8 +61,7 @@ async def generate_config(baselookup :str):
         return 'success'
     except Exception as e:
         log.error("Error generating config ==> %s", str(e))
-
-        return e
+        raise HTTPException(status_code=500, detail="Error uploadiing mappings to marketplace:" + str(e))
 
 
 @router.get('/import_config/{baselookup}')
@@ -108,5 +107,5 @@ async def import_config(baselookup: str):
         return 'success'
     except Exception as e:
         log.error("Error importing config ==> %s", str(e))
+        raise HTTPException(status_code=500, detail="Error importing mappings to system system:" + str(e))
 
-        return e
