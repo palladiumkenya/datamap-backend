@@ -54,7 +54,7 @@ def createEngine():
 
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-        if credentials and credentials["conn_type"] != "csv":
+        if credentials["conn_type"] not in ["csv", "api"]:
             connection_string = credentials
             engine = create_engine(connection_string["conn_string"])
 
@@ -173,27 +173,6 @@ async def get_database_columns():
     else:
         log.error('Error reflecting source database: --->')
         raise HTTPException(status_code=500, detail='Error reflecting source database')
-
-@router.get('/get_csv_columns')
-async def get_csv_columns(cass_session = Depends(database.cassandra_session_factory)):
-    credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-    print(credentials)
-    if credentials and credentials["conn_type"] == "csv":
-        try:
-            dbTablesAndColumns={}
-
-            query = f"SELECT column_name FROM system_schema.columns WHERE keyspace_name='datamap' AND " \
-                    f"table_name='{credentials['name'].lower()}_csv_extract'"
-            rows = cass_session.execute(query)
-            dbTablesAndColumns = [row["column_name"] for row in rows]
-
-            return dbTablesAndColumns
-        except Exception as e:
-            log.error('Error getting csv columns: --->', e)
-            raise HTTPException(status_code=500, detail='Error reflecting source database')
-    else:
-        log.error('Error getting csv columns: --->')
-        raise HTTPException(status_code=500, detail='Error getting csv columns')
 
 @router.post('/add_mapped_variables/{baselookup}')
 async def add_mapped_variables(baselookup:str, variables:List[object]):
@@ -343,12 +322,12 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
 
         dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
         dictionary_terms = data_dictionary_terms_list_entity(dictionary_terms)
-        terms_list = [term["term"] for term in dictionary_terms]
+        terms_list = [term["term"].lower() for term in dictionary_terms]
 
         with db_session as session:
             result = session.execute(text(customquery.query))
 
-            columnsProvided = result.keys()# columns provided in query
+            columnsProvided = [col.lower() for col in result.keys()]# columns provided in query
             baseRepoLoaded = [dict(zip(columnsProvided, row)) for row in result]
 
             processed_results = [result for result in baseRepoLoaded]
@@ -364,7 +343,7 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
 
             # check for any unnecessary columns provided in query that are not base variable terms
             for variable in columnsProvided:
-                if variable not in terms_list:
+                if variable.lower() not in terms_list:
                     issueObj = {"base_variable": "?",
                                 "issue": "*Variable is not part of the expected base variables.",
                                 "column_mapped": variable,
