@@ -11,7 +11,7 @@ from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms
     TransmissionHistory, ExtractsQueries
 from database import database
 from serializers.dictionary_mapper_serializer import mapped_variable_entity,mapped_variable_list_entity
-
+from routes.dictionary_mapper_api import validateMandatoryFields
 
 
 log = logging.getLogger()
@@ -90,18 +90,15 @@ async def add_mapped_variables(conn_type:str, baselookup:str, variables:List[obj
 @router.post('/test/{conn_type}/mapped_variables/{baselookup}')
 async def test_mapped_variables(conn_type:str, baselookup:str, variables:List[object], cass_session = Depends(database.cassandra_session_factory)):
     try:
-        extractQuery = text(generate_test_query(conn_type, variables))
+        extractQuery = generate_test_query(conn_type, variables)
 
         with cass_session as session:
-            result = session.execute(extractQuery)
-
-            columns = result.keys()
-            baseRepoLoaded = [dict(zip(columns, row)) for row in result]
+            baseRepoLoaded = session.execute(extractQuery)
 
             processed_results = [result for result in baseRepoLoaded]
 
-        # list_of_issues = validateMandatoryFields(baselookup, variables, processed_results)
-        list_of_issues = []
+            # check if base variable terms are all in the columns provided in the custom query
+            list_of_issues = validateMandatoryFields(baselookup, variables, processed_results)
 
         return {"data":list_of_issues}
     except Exception as e:
@@ -122,7 +119,7 @@ def generate_flatfile_query(baselookup:str):
 
         for conf in configs:
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(conf["tablename"]+ "."+conf["columnname"] +" as "+conf["base_variable_mapped_to"]+" ")
+                mapped_columns.append(conf["columnname"] +" as "+conf["base_variable_mapped_to"]+" ")
 
         columns = ", ".join(mapped_columns)
 
@@ -143,17 +140,18 @@ def generate_flatfile_query(baselookup:str):
 
 def generate_test_query(conn_type:str, variableSet:List[object]):
     try:
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
+
         mapped_columns = []
 
         for variableMapped in variableSet:
             if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"] +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
+                mapped_columns.append(variableMapped["columnname"] +" as "+variableMapped["base_variable_mapped_to"]+" ")
 
         columns = ", ".join(mapped_columns)
 
-        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-
-        tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
         query = f"SELECT {columns} from {tableName} "
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query

@@ -270,12 +270,21 @@ def validateMandatoryFields(baselookup:str, variables:List[object], processed_re
     list_of_issues = []
     for variableSet in variables:
         if variableSet["base_variable_mapped_to"] != "PrimaryTableId":
-            filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
+            filteredData = [obj[variableSet["base_variable_mapped_to"].lower()] for obj in processed_results]
 
             dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
 
             if dictTerms["is_required"] == True:
-                if "" in filteredData or None in filteredData or "NULL" in filteredData:
+                if "" in filteredData :
+                    print()
+                if None in filteredData:
+                    print()
+                if "N/A" in filteredData:
+                    print()
+                if "NULL" in filteredData:
+                    print()
+
+                if "" in filteredData or "N/A" in filteredData or "NULL" in filteredData:
                     issueObj = {"base_variable": variableSet["base_variable_mapped_to"],
                                 "issue": "*Variable is Mandatory. Data is expected in all records.",
                                 "column_mapped": variableSet["columnname"],
@@ -421,12 +430,11 @@ async def load_data(baselookup:str, websocket: WebSocket):
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
 
-        # extract_source_data_query = text(generate_query(baselookup))
         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
                                                 source_system_id=source_system['id']).allow_filtering().first()
-        extract_source_data_query = text(existingQuery["query"])
+        extract_source_data_query = existingQuery["query"]
 
-        # ------ started loading -------
+        # ------ started extraction -------
 
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                             facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
@@ -435,19 +443,32 @@ async def load_data(baselookup:str, websocket: WebSocket):
                             ended_at=None,
                             manifest_id=None).save()
 
-        with get_db() as session:
+        processed_results=[]
+        if source_system["conn_type"] not in ["csv","api"]:
+            # extract data from source DB
+            with get_db() as session:
 
-            result = session.execute(extract_source_data_query)
+                result = session.execute(text(extract_source_data_query))
 
-            columns = result.keys()
-            baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+                columns = result.keys()
+                baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            processed_results=[result for result in baseRepoLoaded]
+                processed_results=[result for result in baseRepoLoaded]
+        else:
+            # extract data from imported csv/api schema
+            baseRepoLoaded = cass_session.execute(extract_source_data_query)
+            processed_results = [result for result in baseRepoLoaded]
 
-            cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
-            # for data in processed_results:
+        # ------ --------------- -------
+        # ------ started loading -------
+
+        if len(processed_results) > 0:
+            # clear base repo data in preparation for inserting new data
+            cass_session.execute("TRUNCATE TABLE %s;" % (baselookup))
+
             count_inserted = 0
             batch_size = 100
+
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]
                 batch_stmt = BatchStatement()
