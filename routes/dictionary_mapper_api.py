@@ -50,11 +50,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def createEngine():
     global engine, inspector, metadata
-    log.info('===== start creating an engine =====')
 
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials["conn_type"] not in ["csv", "api"]:
+            log.info('===== start creating an engine =====')
+
             connection_string = credentials
             engine = create_engine(connection_string["conn_string"])
 
@@ -85,12 +86,31 @@ async def startup_event():
     #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
+def databaseConnType():
+    try:
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        if credentials["conn_type"] not in ["csv", "api"]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        log.error('Error reflecting source database: --->')
+        raise HTTPException(status_code=500, detail='Error reflecting source database')
 
 @router.get('/base_schemas')
 async def base_schemas():
     try:
+        # create engine if conn type id mssql/mysql/postgres and engine is not created
+        if databaseConnType():
+            if engine == None:
+                createEngine()
+                SessionLocal.configure(bind=engine)
+
+
+        # get the dictionary base repositories
         schemas = DataDictionaries.objects().all()
         schemas =data_dictionary_list_entity(schemas)
+
         return schemas
     except Exception as e:
         log.error('System ran into an error --> ', e)
@@ -109,7 +129,7 @@ async def base_schema_variables(baselookup: str):
 
         base_variables = []
         for i in dictionary:
-            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup,
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'].lower(),base_repository=baselookup,
                                                      source_system_id=source_system['id']).allow_filtering()
 
             configs = mapped_variable_list_entity(configs)
@@ -270,12 +290,21 @@ def validateMandatoryFields(baselookup:str, variables:List[object], processed_re
     list_of_issues = []
     for variableSet in variables:
         if variableSet["base_variable_mapped_to"] != "PrimaryTableId":
-            filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
+            filteredData = [obj[variableSet["base_variable_mapped_to"].lower()] for obj in processed_results]
 
             dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
 
             if dictTerms["is_required"] == True:
-                if "" in filteredData or None in filteredData or "NULL" in filteredData:
+                if "" in filteredData :
+                    print()
+                if None in filteredData:
+                    print()
+                if "N/A" in filteredData:
+                    print()
+                if "NULL" in filteredData:
+                    print()
+
+                if "" in filteredData or "N/A" in filteredData or "NULL" in filteredData:
                     issueObj = {"base_variable": variableSet["base_variable_mapped_to"],
                                 "issue": "*Variable is Mandatory. Data is expected in all records.",
                                 "column_mapped": variableSet["columnname"],
@@ -421,12 +450,11 @@ async def load_data(baselookup:str, websocket: WebSocket):
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
 
-        # extract_source_data_query = text(generate_query(baselookup))
         existingQuery = ExtractsQueries.objects(base_repository=baselookup,
                                                 source_system_id=source_system['id']).allow_filtering().first()
-        extract_source_data_query = text(existingQuery["query"])
+        extract_source_data_query = existingQuery["query"]
 
-        # ------ started loading -------
+        # ------ started extraction -------
 
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                             facility=f'{site_config["site_name"]}-{site_config["site_code"]}',
@@ -435,19 +463,32 @@ async def load_data(baselookup:str, websocket: WebSocket):
                             ended_at=None,
                             manifest_id=None).save()
 
-        with get_db() as session:
+        processed_results=[]
+        if source_system["conn_type"] not in ["csv","api"]:
+            # extract data from source DB
+            with get_db() as session:
 
-            result = session.execute(extract_source_data_query)
+                result = session.execute(text(extract_source_data_query))
 
-            columns = result.keys()
-            baseRepoLoaded = [dict(zip(columns,row)) for row in result]
+                columns = result.keys()
+                baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            processed_results=[result for result in baseRepoLoaded]
+                processed_results=[result for result in baseRepoLoaded]
+        else:
+            # extract data from imported csv/api schema
+            baseRepoLoaded = cass_session.execute(extract_source_data_query)
+            processed_results = [result for result in baseRepoLoaded]
 
-            cass_session.execute("TRUNCATE TABLE %s;" %(baselookup))
-            # for data in processed_results:
+        # ------ --------------- -------
+        # ------ started loading -------
+
+        if len(processed_results) > 0:
+            # clear base repo data in preparation for inserting new data
+            cass_session.execute("TRUNCATE TABLE %s;" % (baselookup))
+
             count_inserted = 0
             batch_size = 100
+
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]
                 batch_stmt = BatchStatement()
@@ -455,10 +496,10 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     quoted_values = [
                         'NULL' if value is None
-                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()[ "data_type"] == "INT")
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()[ "data_type"] == "INT")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
+                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()["data_type"] =="NVARCHAR")
                         else str(value)
                         for key, value in data.items()
                     ]
@@ -485,7 +526,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
         # end batch
         cass_session.cluster.shutdown()
-        baseRepoLoaded_json_data = json.dumps(baseRepoLoaded, default=str)
+        baseRepoLoaded_json_data = json.dumps(processed_results, default=str)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
