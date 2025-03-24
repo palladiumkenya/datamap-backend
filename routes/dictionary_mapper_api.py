@@ -506,7 +506,7 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
         # end batch
         cass_session.cluster.shutdown()
-        baseRepoLoaded_json_data = json.dumps(baseRepoLoaded, default=str)
+        baseRepoLoaded_json_data = json.dumps(processed_results, default=str)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
