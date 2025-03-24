@@ -29,14 +29,14 @@ router = APIRouter()
 
 
 
-@router.get('/get_csv_columns')
-async def get_csv_columns(cass_session = Depends(database.cassandra_session_factory)):
+@router.get('/columns/{conn_type}')
+async def get_columns(conn_type:str, cass_session = Depends(database.cassandra_session_factory)):
     credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-    if credentials and credentials["conn_type"] == "csv":
+    if credentials:
         try:
-
+            tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
             query = f"SELECT column_name FROM system_schema.columns WHERE keyspace_name='datamap' AND " \
-                    f"table_name='{credentials['name'].lower()}_csv_extract'"
+                    f"table_name='{tableName}'"
             rows = cass_session.execute(query)
             dbTablesAndColumns = [row["column_name"] for row in rows]
 
@@ -49,8 +49,8 @@ async def get_csv_columns(cass_session = Depends(database.cassandra_session_fact
         raise HTTPException(status_code=500, detail='Error getting csv columns')
 
 
-@router.post('/add_mapped_variables/{baselookup}')
-async def add_mapped_variables(baselookup:str, variables:List[object]):
+@router.post('/add/{conn_type}/mapped_variables/{baselookup}')
+async def add_mapped_variables(conn_type:str, baselookup:str, variables:List[object]):
     try:
         #delete existing configs for base repo
         source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
@@ -61,7 +61,7 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
 
         for variableSet in variables:
-            MappedVariables.create(tablename=credentials['name'].lower()+"_csv_extract",
+            MappedVariables.create(tablename=f"{credentials['name'].lower()}_{conn_type}_extract",
                                    columnname=variableSet["columnname"],
                                    datatype="-", base_repository=baselookup,
                                    base_variable_mapped_to=variableSet["base_variable_mapped_to"],
@@ -87,10 +87,10 @@ async def add_mapped_variables(baselookup:str, variables:List[object]):
         return {"status":500, "message":e}
 
 
-@router.post('/test/mapped_variables/{baselookup}')
-async def test_mapped_variables(baselookup:str, variables:List[object], cass_session = Depends(database.cassandra_session_factory)):
+@router.post('/test/{conn_type}mapped_variables/{baselookup}')
+async def test_mapped_variables(conn_type:str, baselookup:str, variables:List[object], cass_session = Depends(database.cassandra_session_factory)):
     try:
-        extractQuery = text(generate_test_query(variables))
+        extractQuery = text(generate_test_query(conn_type, variables))
 
         with cass_session as session:
             result = session.execute(extractQuery)
@@ -141,7 +141,7 @@ def generate_flatfile_query(baselookup:str):
 
 
 
-def generate_test_query(variableSet:List[object]):
+def generate_test_query(conn_type:str, variableSet:List[object]):
     try:
         mapped_columns = []
 
@@ -151,7 +151,9 @@ def generate_test_query(variableSet:List[object]):
 
         columns = ", ".join(mapped_columns)
 
-        tableName = variableSet[0]["tablename"]
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
         query = f"SELECT {columns} from {tableName} "
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
