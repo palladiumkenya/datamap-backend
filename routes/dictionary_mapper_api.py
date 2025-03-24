@@ -50,11 +50,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def createEngine():
     global engine, inspector, metadata
-    log.info('===== start creating an engine =====')
 
     try:
         credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
         if credentials["conn_type"] not in ["csv", "api"]:
+            log.info('===== start creating an engine =====')
+
             connection_string = credentials
             engine = create_engine(connection_string["conn_string"])
 
@@ -85,12 +86,31 @@ async def startup_event():
     #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
+def databaseConnType():
+    try:
+        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        if credentials["conn_type"] not in ["csv", "api"]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        log.error('Error reflecting source database: --->')
+        raise HTTPException(status_code=500, detail='Error reflecting source database')
 
 @router.get('/base_schemas')
 async def base_schemas():
     try:
+        # create engine if conn type id mssql/mysql/postgres and engine is not created
+        if databaseConnType():
+            if engine == None:
+                createEngine()
+                SessionLocal.configure(bind=engine)
+
+
+        # get the dictionary base repositories
         schemas = DataDictionaries.objects().all()
         schemas =data_dictionary_list_entity(schemas)
+
         return schemas
     except Exception as e:
         log.error('System ran into an error --> ', e)
@@ -109,7 +129,7 @@ async def base_schema_variables(baselookup: str):
 
         base_variables = []
         for i in dictionary:
-            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup,
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'].lower(),base_repository=baselookup,
                                                      source_system_id=source_system['id']).allow_filtering()
 
             configs = mapped_variable_list_entity(configs)
@@ -476,10 +496,10 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     quoted_values = [
                         'NULL' if value is None
-                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()[ "data_type"] == "INT")
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()[ "data_type"] == "INT")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
+                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()["data_type"] =="NVARCHAR")
                         else str(value)
                         for key, value in data.items()
                     ]
