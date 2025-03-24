@@ -87,7 +87,7 @@ async def add_mapped_variables(conn_type:str, baselookup:str, variables:List[obj
         return {"status":500, "message":e}
 
 
-@router.post('/test/{conn_type}mapped_variables/{baselookup}')
+@router.post('/test/{conn_type}/mapped_variables/{baselookup}')
 async def test_mapped_variables(conn_type:str, baselookup:str, variables:List[object], cass_session = Depends(database.cassandra_session_factory)):
     try:
         extractQuery = text(generate_test_query(conn_type, variables))
