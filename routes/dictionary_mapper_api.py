@@ -488,10 +488,10 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     quoted_values = [
                         'NULL' if value is None
-                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()[ "data_type"] == "INT")
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()[ "data_type"] == "INT")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
-                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key.lower()).allow_filtering().first()["data_type"] =="NVARCHAR")
+                        else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
                         else str(value)
                         for key, value in data.items()
                     ]
