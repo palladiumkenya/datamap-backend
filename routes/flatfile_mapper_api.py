@@ -64,7 +64,7 @@ async def add_mapped_variables(conn_type:str, baselookup:str, variables:List[obj
             MappedVariables.create(tablename=f"{credentials['name'].lower()}_{conn_type}_extract",
                                    columnname=variableSet["columnname"],
                                    datatype="-", base_repository=baselookup,
-                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"].lower(),
+                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"],
                                    join_by="-", source_system_id=source_system['id'])
 
         # after saving mappings, generate query from them and save
@@ -148,7 +148,7 @@ def generate_test_query(conn_type:str, variableSet:List[object]):
 
         for variableMapped in variableSet:
             if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(variableMapped["columnname"] +" as "+variableMapped["base_variable_mapped_to"]+" ")
+                mapped_columns.append(variableMapped["columnname"] +" as \""+variableMapped["base_variable_mapped_to"]+"\" ")
 
         columns = ", ".join(mapped_columns)
 
