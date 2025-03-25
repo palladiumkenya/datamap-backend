@@ -119,7 +119,7 @@ def generate_flatfile_query(baselookup:str):
 
         for conf in configs:
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(conf["columnname"] +" as "+conf["base_variable_mapped_to"]+" ")
+                mapped_columns.append(conf["columnname"] +" as \""+conf["base_variable_mapped_to"]+"\" ")
 
         columns = ", ".join(mapped_columns)
 
