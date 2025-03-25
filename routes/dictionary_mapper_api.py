@@ -129,7 +129,7 @@ async def base_schema_variables(baselookup: str):
 
         base_variables = []
         for i in dictionary:
-            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'].lower(),base_repository=baselookup,
+            configs = MappedVariables.objects.filter(base_variable_mapped_to=i['term'],base_repository=baselookup,
                                                      source_system_id=source_system['id']).allow_filtering()
 
             configs = mapped_variable_list_entity(configs)
@@ -295,14 +295,6 @@ def validateMandatoryFields(baselookup:str, variables:List[object], processed_re
             dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
 
             if dictTerms["is_required"] == True:
-                if "" in filteredData :
-                    print()
-                if None in filteredData:
-                    print()
-                if "N/A" in filteredData:
-                    print()
-                if "NULL" in filteredData:
-                    print()
 
                 if "" in filteredData or "N/A" in filteredData or "NULL" in filteredData:
                     issueObj = {"base_variable": variableSet["base_variable_mapped_to"],
@@ -321,7 +313,7 @@ def generate_test_query(baselookup:str, variableSet:List[object]):
         primaryTableDetails = [mapping for mapping in variableSet if mapping["base_variable_mapped_to"] == 'PrimaryTableId']
         for variableMapped in variableSet:
             if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"] +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
+                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"].lower() +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
                 if all(variableMapped["tablename"]+"." not in s for s in mapped_joins):
                     if variableMapped["tablename"] != primaryTableDetails[0]['tablename']:
                         mapped_joins.append(" LEFT JOIN "+variableMapped["tablename"] + " ON " +
