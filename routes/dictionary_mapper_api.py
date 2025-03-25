@@ -290,7 +290,7 @@ def validateMandatoryFields(baselookup:str, variables:List[object], processed_re
     list_of_issues = []
     for variableSet in variables:
         if variableSet["base_variable_mapped_to"] != "PrimaryTableId":
-            filteredData = [obj[variableSet["base_variable_mapped_to"].lower()] for obj in processed_results]
+            filteredData = [obj[variableSet["base_variable_mapped_to"]] for obj in processed_results]
 
             dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup, term=variableSet["base_variable_mapped_to"]).allow_filtering().first()
 
