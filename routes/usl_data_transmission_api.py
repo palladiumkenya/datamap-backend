@@ -92,7 +92,7 @@ async def manifest(baselookup:str):
         new_manifest = uuid.uuid1()
         manifest = {
             "manifest_id": new_manifest,
-            "usl_repository_name": baselookup,
+            "usl_repository_name": baselookup.lower(),
             "count": [row['count'] for row in count][0],
             "columns": [row['column_name'] for row in columns],
             "session_id": uuid.uuid4(),
