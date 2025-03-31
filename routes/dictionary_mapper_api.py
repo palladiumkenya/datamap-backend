@@ -343,12 +343,12 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
 
         dictionary_terms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering()
         dictionary_terms = data_dictionary_terms_list_entity(dictionary_terms)
-        terms_list = [term["term"].lower() for term in dictionary_terms]
+        terms_list = [term["term"] for term in dictionary_terms]
 
         with db_session as session:
             result = session.execute(text(customquery.query))
 
-            columnsProvided = [col.lower() for col in result.keys()]# columns provided in query
+            columnsProvided = [col for col in result.keys()]# columns provided in query
             baseRepoLoaded = [dict(zip(columnsProvided, row)) for row in result]
 
             processed_results = [result for result in baseRepoLoaded]
@@ -359,12 +359,12 @@ async def test_query_mapped_variables(baselookup:str, customquery:QueryModel, db
                     issueObj = {"base_variable": "?",
                                 "issue": "*Variable is missing but is expected in the list of base variables.",
                                 "column_mapped": variable,
-                                "recommended_solution": "Ensure all expected base variables are in the query provided"}
+                                "recommended_solution": "Ensure all expected base variables are in the query provided and match what is shared  above"}
                     list_of_issues.append(issueObj)
 
             # check for any unnecessary columns provided in query that are not base variable terms
             for variable in columnsProvided:
-                if variable.lower() not in terms_list:
+                if variable not in terms_list:
                     issueObj = {"base_variable": "?",
                                 "issue": "*Variable is not part of the expected base variables.",
                                 "column_mapped": variable,
@@ -460,9 +460,10 @@ async def load_data(baselookup:str, websocket: WebSocket):
             # extract data from source DB
             with get_db() as session:
 
-                result = session.execute(text(extract_source_data_query))
-
-                columns = result.keys()
+                extractresults = session.execute(text(extract_source_data_query))
+                result= extractresults.fetchall()
+                print([row for row in result])
+                columns = extractresults.keys()
                 baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
                 processed_results=[result for result in baseRepoLoaded]
@@ -488,7 +489,8 @@ async def load_data(baselookup:str, websocket: WebSocket):
 
                     quoted_values = [
                         'NULL' if value is None
-                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()[ "data_type"] == "INT")
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "INT")
+                        else f'{bool(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "BOOLEAN")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)  # Convert date to string
                         else f"'{value}'" if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] =="NVARCHAR")
@@ -532,6 +534,11 @@ async def load_data(baselookup:str, websocket: WebSocket):
         # return {"data": [expected_variables_dqa(data, baselookup) for data in baseRepoLoaded]}
         return {"data": baseRepoLoaded}
     except Exception as e:
+        error = json.dumps({"status_code":500, "message":e}, default=str)
+
+        # Send the error over the WebSocket
+        await websocket.send_text(error)
+        await websocket.close()
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
