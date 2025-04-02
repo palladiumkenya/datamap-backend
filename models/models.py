@@ -174,7 +174,7 @@ class SchedulesLog(Base):
 class UniversalDictionaryConfig(Base):
     __tablename__ = 'universal_dictionary_config'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     universal_dictionary_url = Column(String, nullable=False)
     universal_dictionary_jwt = Column(String, nullable=False)
     universal_dictionary_update_frequency = Column(String, nullable=True)
@@ -186,7 +186,7 @@ class UniversalDictionaryConfig(Base):
 class DQAReport(Base):
     __tablename__ = 'dqa_report'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     base_table_name = Column(String, nullable=False)
     valid_rows = Column(Integer, nullable=False)
     invalid_rows = Column(Integer, nullable=False)
@@ -216,7 +216,7 @@ class Transformations(Base):
     """
     __tablename__ = 'transformations'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     base_table_name = Column(String, nullable=False)
     base_table_column = Column(String, nullable=False)
     previous_value = Column(String, nullable=True)
