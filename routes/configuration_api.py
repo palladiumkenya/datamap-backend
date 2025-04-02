@@ -1,8 +1,10 @@
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from urllib.parse import urlparse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from database.database import get_db
 from models.models import UniversalDictionaryConfig
 from serializers.universal_dictionary_config_serializer import universal_dictionary_config_serializer_entity
 
@@ -10,18 +12,16 @@ router = APIRouter()
 
 
 @router.get("/get_dictionary_config")
-def get_dictionary_config():
+def get_dictionary_config(db: Session = Depends(get_db)):
     try:
-        configs = UniversalDictionaryConfig.objects.first()
+        configs = db.query(UniversalDictionaryConfig).first()
         if configs is not None:
             response_config = universal_dictionary_config_serializer_entity(configs)
         else:
-            response_config = None
+            raise HTTPException(status_code=404, detail="Config not found")
         return {"data": response_config}
-    except UniversalDictionaryConfig.DoesNotExist:
-        raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 class SaveUniversalDataDictionary(BaseModel):
@@ -31,24 +31,24 @@ class SaveUniversalDataDictionary(BaseModel):
 
 
 @router.post("/add_dictionary_config")
-def add_dictionary_config(data: SaveUniversalDataDictionary):
+def add_dictionary_config(data: SaveUniversalDataDictionary, db: Session = Depends(get_db)):
     try:
-        dictionary_config = UniversalDictionaryConfig.objects.first()
+        dictionary_config = db.query(UniversalDictionaryConfig).first()
         if dictionary_config is not None:
             dictionary_config.universal_dictionary_url = data.universal_dictionary_url
             dictionary_config.universal_dictionary_jwt = data.universal_dictionary_jwt
             dictionary_config.universal_dictionary_update_frequency = data.universal_dictionary_update_frequency
-            dictionary_config.save()
         else:
             dictionary_config = UniversalDictionaryConfig(
                 universal_dictionary_url=data.universal_dictionary_url,
                 universal_dictionary_jwt=data.universal_dictionary_jwt,
                 universal_dictionary_update_frequency=data.universal_dictionary_update_frequency
             )
-            dictionary_config.save()
+        db.add(dictionary_config)
+        db.commit()
         return {"status": "success", "data": dictionary_config}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 class TestUniversalDataDictionary(BaseModel):
@@ -62,7 +62,7 @@ def is_valid_url(url):
 
 
 @router.post("/test_dictionary_config")
-def test_dictionary_config(
+def dictionary_config_test(
         data: TestUniversalDataDictionary
 ):
     headers = {"Authorization": f"Bearer {data.universal_dictionary_jwt}"}

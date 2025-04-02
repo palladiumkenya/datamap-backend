@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 import secrets
@@ -11,9 +12,11 @@ from uuid import UUID
 
 from cassandra.cqlengine.query import DoesNotExist
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from database.database import get_db
 from models.usl_models import DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog, \
     UniversalDictionaryTokens, UniversalDictionaryFacilityPulls
 from serializers.data_dictionary_serializer import data_dictionary_terms_list_entity, data_dictionary_usl_list_entity, \
@@ -25,8 +28,8 @@ router = APIRouter()
 
 # USL dictionary management apis
 @router.get("/data_dictionary_terms_usl")
-async def data_dictionary_terms_usl():
-    terms = DataDictionaryTermsUSL.objects.all()
+async def data_dictionary_terms_usl(db: Session = Depends(get_db)):
+    terms = db.query(DataDictionaryTermsUSL).all()
     response_terms = data_dictionary_terms_list_entity(terms)
     grouped_terms = defaultdict(list)
     for term in response_terms:
@@ -48,21 +51,21 @@ def irregular_express(pattern):
 
 
 @router.get("/data_dictionaries_usl")
-async def data_dictionaries_usl():
-    dictionaries = DataDictionariesUSL.objects().all()
+async def data_dictionaries_usl(db: Session = Depends(get_db)):
+    dictionaries = db.query(DataDictionariesUSL).all()
 
     response_terms = data_dictionary_usl_list_entity(dictionaries)
     return response_terms
 
 
 @router.get("/data_dictionary_terms_usl/{dictionary_id}")
-async def data_dictionary_term_usl(dictionary_id: str):
+async def data_dictionary_term_usl(dictionary_id: str, db: Session = Depends(get_db)):
     try:
-        terms = DataDictionaryTermsUSL.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
+        terms = db.query(DataDictionaryTermsUSL).filter(DataDictionaryTermsUSL.dictionary_id == dictionary_id).all()
 
         response_terms = data_dictionary_terms_list_entity(terms)
         if not response_terms:
-            dictionary = DataDictionariesUSL.objects.get(id=dictionary_id)
+            dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == dictionary_id).first()
             dictionary_response = data_dictionary_usl_entity(dictionary)
             if dictionary_response:
                 return {"name": dictionary_response["name"], "dictionary_terms": []}
@@ -86,14 +89,15 @@ class SaveUSLDataDictionary(BaseModel):
 
 @router.post("/create_data_dictionary_usl")
 async def create_data_dictionary(
-        data: SaveUSLDataDictionary
+        data: SaveUSLDataDictionary, db: Session = Depends(get_db)
 ):
     # Create a new data dictionary object
     dictionary = DataDictionariesUSL(
         name=data.name.lower(),
         version_number=1
     )
-    dictionary.save()
+    db.add(dictionary)
+    db.commit()
 
     return {"message": "Data dictionary created successfully"}
 
@@ -105,22 +109,22 @@ class SaveDataDictionary(BaseModel):
 
 @router.post("/add_data_dictionary_terms")
 async def add_data_dictionary_terms(
-        data: SaveDataDictionary,
+        data: SaveDataDictionary, db: Session = Depends(get_db)
 ):
-    data_dictionary = DataDictionariesUSL.objects(id=data.dictionary).first()
+    data_dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == data.dictionary).first()
     if not data_dictionary:
         raise HTTPException(status_code=404, detail="Dictionary not found")
     # latest_dictionary = max(data_dictionary, key=lambda dictionary: dictionary.version_number)
-    terms_count = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary).count()
+    terms_count = db.query(DataDictionaryTermsUSL).filter(DataDictionaryTermsUSL.dictionary_id == data.dictionary).all()
 
-    if terms_count != 0:
-        data_dictionary.update(version_number=data_dictionary.version_number + 1)
-        data_dictionary.save()
-    add_dict_terms(data, data_dictionary)
+    if len(terms_count) != 0:
+        data_dictionary.version_number = data_dictionary.version_number + 1
+        db.commit()
+    add_dict_terms(data, data_dictionary, db)
     return {"message": "Data dictionary terms uploaded successfully"}
 
 
-def add_dict_terms(data, data_dictionary):
+def add_dict_terms(data, data_dictionary, db):
     """Adds terms to data dictionary and logs changes"""
     for row in data.data:
         term = row['column']
@@ -130,7 +134,10 @@ def add_dict_terms(data, data_dictionary):
         expected_values = row['expected_values'] or None
 
         # Check if the term already exists
-        existing_term = DataDictionaryTermsUSL.objects.filter(dictionary_id=data.dictionary, term=term).allow_filtering().first()
+        existing_term = db.query(DataDictionaryTermsUSL).filter(
+            DataDictionaryTermsUSL.dictionary_id == data.dictionary,
+            DataDictionaryTermsUSL.term == term
+        ).first()
 
         if existing_term:
             log_dictionary_change(
@@ -144,14 +151,15 @@ def add_dict_terms(data, data_dictionary):
                     "expected_values": expected_values,
                     "term_description": term_description
                 },
-                version_number=data_dictionary.version_number
+                version_number=data_dictionary.version_number,
+                db=db
             )
             # If the term exists, update it
             existing_term.data_type = data_type
             existing_term.is_required = is_required
             existing_term.term_description = term_description
             existing_term.expected_values = expected_values
-            existing_term.save()
+            db.commit()
         else:
             # If the term doesn't exist, create a new one
             new_term = DataDictionaryTermsUSL(
@@ -163,14 +171,16 @@ def add_dict_terms(data, data_dictionary):
                 term_description=term_description,
                 expected_values=expected_values
             )
-            new_term.save()
+            db.add(new_term)
+            db.commit()
 
             log_dictionary_change(
                 dictionary_id=data_dictionary.id,
                 term_id=new_term.id,
                 operation="ADD",
                 new_value=data_dictionary_term_entity(new_term),
-                version_number=data_dictionary.version_number
+                version_number=data_dictionary.version_number,
+                db=db
             )
 
 
@@ -183,14 +193,14 @@ class DataDictionaryTermsUSLUpdate(BaseModel):
 
 
 @router.put("/update_data_dictionary_terms_usl/{term_id}")
-def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUpdate):
+def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUpdate, db: Session = Depends(get_db)):
     # Fetch the term
-    term = DataDictionaryTermsUSL.objects(id=UUID(term_id)).first()
+    term = db.query(DataDictionaryTermsUSL).filter(DataDictionaryTermsUSL.id == UUID(term_id)).first()
     if not term:
         raise HTTPException(status_code=404, detail="Data dictionary term not found")
 
     # Capture for logging
-    old_term = term
+    old_term = copy.deepcopy(term)
 
     # update term attributes
     if data.data_type is not None:
@@ -201,13 +211,13 @@ def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUp
         term.term_description = data.term_description
     if data.expected_values is not None:
         term.expected_values = data.expected_values
-    term.save()
+    db.commit()
 
     # Fetch dict for version update
-    dictionary = DataDictionariesUSL.objects(id=UUID(term.dictionary_id)).first()
+    dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == UUID(term.dictionary_id)).first()
     if dictionary:
         dictionary.version_number += 1
-        dictionary.save()
+        db.commit()
 
         # log change
         log_dictionary_change(
@@ -216,22 +226,22 @@ def update_data_dictionary_term_usl(term_id: str, data: DataDictionaryTermsUSLUp
             operation="EDIT",
             old_value=data_dictionary_term_entity(old_term),
             new_value=data_dictionary_term_entity(term),
-            version_number=dictionary.version_number
+            version_number=dictionary.version_number,
+            db=db
         )
 
     return term
 
 
 @router.delete("/delete_data_dictionary_terms_usl/{term_id}")
-def delete_data_dictionary_term_usl(term_id: str):
-    term = DataDictionaryTermsUSL.objects(id=UUID(term_id)).first()
+def delete_data_dictionary_term_usl(term_id: str, db: Session = Depends(get_db)):
+    term = db.query(DataDictionaryTermsUSL).filter(DataDictionaryTermsUSL.id == UUID(term_id)).first()
     if not term:
         raise HTTPException(status_code=404, detail="Data dictionary term not found")
 
-    dictionary = DataDictionariesUSL.objects(id=UUID(term.dictionary_id)).first()
+    dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == UUID(term.dictionary_id)).first()
     if dictionary:
         dictionary.version_number += 1
-        dictionary.save()
 
         # log change
         log_dictionary_change(
@@ -239,28 +249,31 @@ def delete_data_dictionary_term_usl(term_id: str):
             term_id=term.id,
             operation="DELETE",
             old_value=data_dictionary_term_entity(term),
-            version_number=dictionary.version_number
+            version_number=dictionary.version_number,
+            db=db
         )
 
-    term.delete()
+    db.delete(term)
+    db.commit()
     return {"message": "Data dictionary term deleted successfully"}
 
 
 @router.delete("/delete_data_dictionary_usl/{dict_id}")
-def delete_data_dictionary_usl(dict_id: str):
-    dictionary = DataDictionariesUSL.objects(id=UUID(dict_id)).first()
+def delete_data_dictionary_usl(dict_id: str, db: Session = Depends(get_db)):
+    dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == UUID(dict_id)).first()
     if not dictionary:
         raise HTTPException(status_code=404, detail="Data dictionary term not found")
 
-    terms = DataDictionaryTermsUSL.objects(dictionary_id=str(dictionary.id)).all()
-    for term in terms:
-        term.delete()
-    dictionary.delete()
+    db.query(DataDictionaryTermsUSL).filter(DataDictionaryTermsUSL.dictionary_id == str(dictionary.id)).delete()
+
+    db.delete(dictionary)
+    db.commit()
 
     return {"message": "Data dictionary deleted successfully"}
 
 
-def log_dictionary_change(dictionary_id, term_id, operation, old_value=None, new_value=None, version_number=None):
+def log_dictionary_change(dictionary_id, term_id, operation, db, old_value=None, new_value=None, version_number=None):
+    print(old_value, new_value)
 
     change_log = DictionaryChangeLog(
         dictionary_id=dictionary_id,
@@ -270,7 +283,8 @@ def log_dictionary_change(dictionary_id, term_id, operation, old_value=None, new
         new_value=json.dumps(new_value, default=json_serializer) if new_value else None,
         version_number=version_number,
     )
-    change_log.save()
+    db.add(change_log)
+    db.commit()
 
 
 def json_serializer(obj):
@@ -283,9 +297,9 @@ def json_serializer(obj):
 
 
 @router.get("/get_change_logs/{dictionary_id}")
-async def get_change_logs(dictionary_id):
+async def get_change_logs(dictionary_id, db: Session = Depends(get_db)):
     try:
-        logs = DictionaryChangeLog.objects.filter(dictionary_id=dictionary_id).allow_filtering().all()
+        logs = db.query(DictionaryChangeLog).filter(DictionaryChangeLog.dictionary_id == dictionary_id).all()
         if not logs:
             return []
 
@@ -295,20 +309,21 @@ async def get_change_logs(dictionary_id):
             if version not in formatted_logs:
                 formatted_logs[version] = []
             formatted_logs[version].append(data_dictionary_change_log_entity(log))
+        print(formatted_logs)
         return formatted_logs
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Dictionary does not exist")
 
 
 @router.get("/get_universal_dictionaries")
-def get_universal_dictionaries():
+def get_universal_dictionaries(db: Session = Depends(get_db)):
     try:
-        universal_dictionaries = DataDictionariesUSL.objects.filter(is_published=True).allow_filtering().all()
+        universal_dictionaries = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.is_published == True).all()
 
         grouped_terms = defaultdict(list)
         formatted_terms = []
 
-        terms = DataDictionaryTermsUSL.objects.all()
+        terms = db.query(DataDictionaryTermsUSL).all()
 
         response_terms = data_dictionary_terms_list_entity(terms)
         for term in response_terms:
@@ -330,19 +345,19 @@ class PublishUniversalDictionary(BaseModel):
 
 
 @router.post("/publish/universal_dictionary")
-async def publish_universal_dictionary(data: PublishUniversalDictionary):
-    dictionary = DataDictionariesUSL.objects.filter(id=data.id).first()
+async def publish_universal_dictionary(data: PublishUniversalDictionary, db: Session = Depends(get_db)):
+    dictionary = db.query(DataDictionariesUSL).filter(DataDictionariesUSL.id == data.id).first()
     if dictionary:
         dictionary.is_published = not dictionary.is_published
-        dictionary.save()
+        db.commit()
         return dictionary
     else:
         raise HTTPException(status_code=404, detail="Dictionary Not Found")
 
 
 @router.get("/universal_dictionary/token")
-def get_universal_dictionary_token():
-    token = UniversalDictionaryTokens.objects.first()
+def get_universal_dictionary_token(db: Session = Depends(get_db)):
+    token = db.query(UniversalDictionaryTokens).first()
     if token is not None:
         return {"token": token.universal_dictionary_token}
     else:
@@ -356,15 +371,17 @@ def get_universal_dictionary_token():
         }
         secret = secrets.token_hex(32)
         new_token = jwt.encode(payload, secret, algorithm="HS256")
-        UniversalDictionaryTokens(
+        universal_token = UniversalDictionaryTokens(
             universal_dictionary_token=new_token,
             secret=secret
-        ).save()
+        )
+        db.add(universal_token)
+        db.commit()
         return {"token": new_token}
 
 
 @router.post("/refresh_universal_dictionary/token")
-async def refresh_universal_dictionary_token():
+async def refresh_universal_dictionary_token(db: Session = Depends(get_db)):
     payload = {
         "iss": "datamap.app",
         "sub": "universal_dictionary",
@@ -375,19 +392,19 @@ async def refresh_universal_dictionary_token():
     }
     secret = secrets.token_hex(32)
     new_token = jwt.encode(payload, secret, algorithm="HS256")
-    token = UniversalDictionaryTokens.objects.first()
+    token = db.query(UniversalDictionaryTokens).first()
 
     if token is not None:
         token.universal_dictionary_token = new_token
         token.secret = secret
-        token.save()
+        db.commit()
         return {"token": new_token}
     else:
         raise HTTPException(status_code=500, detail="No token available")
 
 
 @router.get('/get_facility_pulls')
-async def get_facility_pulls():
-    facility_pulls = UniversalDictionaryFacilityPulls.objects.all()
+async def get_facility_pulls(db: Session = Depends(get_db)):
+    facility_pulls = db.query(UniversalDictionaryFacilityPulls).all()
     facility_pulls = universal_dictionary_facility_pulls_serializer_list(facility_pulls)
     return {"success": True, "data": facility_pulls}
