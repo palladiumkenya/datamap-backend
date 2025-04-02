@@ -1,11 +1,12 @@
 import re
 
+import exrex
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from database.database import execute_query, get_db, execute_data_query
+from database.database import execute_query, get_db, execute_data_query, execute_raw_data_query
 from models.models import DataDictionaries, DataDictionaryTerms, DQAReport, Transformations
 from serializers.transformations_serializer import transformation_list_serializer
 
@@ -21,19 +22,22 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
     query = text(f"""
         SELECT * From {baselookup}
     """)
-    data = execute_data_query(query)
+    data = execute_raw_data_query(query)
     count_data = len(data)
     failed_expected = []
     for row in data:
         for term in terms:
-            is_valid = re.match(term.expected_values, str(row[term.term.lower()]))  # flags=re.IGNORECASE
+            term_value = row[term.term.lower()]
+            is_valid = re.match(term.expected_values, str(term_value), flags=re.IGNORECASE)
             if not is_valid:
                 failed_expected.append({
                     'term': term.term.lower(),
-                    'expected': term.expected_values
+                    'expected': term.expected_values,
+                    'actual': term_value,
+                    'example': exrex.getone(term.expected_values)
                 })
     report = DQAReport(
-        base_tale_name=baselookup,
+        base_table_name=baselookup,
         valid_rows=count_data - len(failed_expected),
         invalid_rows=len(failed_expected),
         dictionary_version=dictionary.version_number
@@ -41,7 +45,7 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
     db.add(report)
     db.commit()
 
-    return {"message": data, "count": count_data}
+    return {"message": data, "count": count_data, "failed": failed_expected}
 
 
 class TransformationData(BaseModel):
