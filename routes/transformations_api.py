@@ -1,9 +1,11 @@
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from database.database import execute_query
+from database.database import execute_query, get_db, execute_data_query
 from models.models import DataDictionaries, DataDictionaryTerms, DQAReport, Transformations
 from serializers.transformations_serializer import transformation_list_serializer
 
@@ -11,20 +13,20 @@ router = APIRouter()
 
 
 @router.get("/dqa/{baselookup}")
-def transformation_api(baselookup: str):
+def transformation_api(baselookup: str, db: Session = Depends(get_db)):
     if not baselookup:
         raise HTTPException()
-    dictionary = DataDictionaries.objects().filter(name=baselookup).first()
-    terms = DataDictionaryTerms.objects().filter(dictionary=baselookup).allow_filtering().all()
-    query = f"""
+    dictionary = db.query(DataDictionaries).filter(DataDictionaries.name==baselookup).first()
+    terms = db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup).all()
+    query = text(f"""
         SELECT * From {baselookup}
-    """
-    data = execute_query(query)
+    """)
+    data = execute_data_query(query)
     count_data = len(data)
     failed_expected = []
     for row in data:
         for term in terms:
-            is_valid = re.match(term.expected_values, str(row[term.term.lower()])) # flags=re.IGNORECASE
+            is_valid = re.match(term.expected_values, str(row[term.term.lower()]))  # flags=re.IGNORECASE
             if not is_valid:
                 failed_expected.append({
                     'term': term.term.lower(),
@@ -36,7 +38,8 @@ def transformation_api(baselookup: str):
         invalid_rows=len(failed_expected),
         dictionary_version=dictionary.version_number
     )
-    report.save()
+    db.add(report)
+    db.commit()
 
     return {"message": data, "count": count_data}
 
@@ -49,35 +52,27 @@ class TransformationData(BaseModel):
 
 
 @router.post("/transform")
-def transform_api(transform: TransformationData):
+def transform_api(transform: TransformationData, db: Session = Depends(get_db)):
     try:
-        dictionary = DataDictionaries.objects().filter(name=transform.base_table).first()
-        dictionary_term = DataDictionaryTerms.objects().filter(
-            dictionary_id=dictionary.id,
-            term=transform.column
+        dictionary = db.query(DataDictionaries).filter(DataDictionaries.name==transform.base_table).first()
+        dictionary_term = db.query(DataDictionaryTerms).filter(
+            DataDictionaryTerms.dictionary_id==dictionary.id,
+            DataDictionaryTerms.term==transform.column
         ).first()
 
         if dictionary_term:
             is_valid = re.match(dictionary_term.expected_values, transform.valid_value)
             if not is_valid:
                 raise HTTPException()
-        id_queries = f"""
-            SELECT 
-                {transform.base_table}_id as id 
-            FROM {transform.base_table} 
-            WHERE {transform.column} = {transform.invalid_value} ALLOW FILTERING;
-        """
-        ids = eval(id_queries)
-        print(ids)
-        ids = [x.id for x in ids]
+
         update_query = f"""
             UPDATE {transform.base_table} 
             SET {transform.column} = {transform.valid_value} 
-            WHERE {transform.base_table}_id IN {ids}
+            WHERE {transform.column} = {transform.invalid_value};
         """
 
         execute_query(update_query)
-        return
+        return {"message": "success"}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -107,9 +102,9 @@ def transform_api(transform: TransformationData):
 
 
 @router.get("/transformation/report")
-def transformation_api_report():
+def transformation_api_report(db: Session = Depends(get_db)):
     try:
-        transformation_data = Transformations.objects().all()
+        transformation_data = db.query(Transformations).all()
         data = transformation_list_serializer(transformation_data)
         return {
             'status': 'success',
