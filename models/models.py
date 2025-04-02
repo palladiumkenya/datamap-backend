@@ -33,7 +33,21 @@ class IndicatorQueries(Base):
     indicator = Column(String, nullable=False)
     query = Column(String, nullable=False)
     indicator_value = Column(String, nullable=False, default="0")
-    indicator_date = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    indicator_date = Column(DateTime, nullable=False,
+                            default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False,
+                        default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False,
+                        default=datetime.now(timezone.utc))
+
+
+class ExtractsQueries(Base):
+    __tablename__ = 'extract_queries'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    base_repository = Column(String, nullable=False)
+    query = Column(String, nullable=False)
+    source_system_id = Column(UUID(as_uuid=True), nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))

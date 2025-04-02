@@ -6,6 +6,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 import datetime
 from contextlib import contextmanager
+from pydantic import BaseModel
+import uuid
 
 import json
 from fastapi import APIRouter
@@ -15,9 +17,13 @@ import logging
 
 from database.database import execute_data_query, get_db as get_main_db, execute_query
 from models.models import AccessCredentials, MappedVariables, DataDictionaryTerms, DataDictionaries, SiteConfig, \
-    TransmissionHistory
+    TransmissionHistory, ExtractsQueries
 from serializers.dictionary_mapper_serializer import mapped_variable_entity, mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
+
+class QueryModel(BaseModel):
+    query: str
+
 
 log = logging.getLogger()
 log.setLevel('DEBUG')
@@ -36,14 +42,14 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def createEngine():
     global engine, inspector, metadata
-    log.info('===== start creating an engine =====')
 
     try:
         query = text("""
             SELECT * FROM access_credentials WHERE is_active = True LIMIT 1
         """)
         credentials = execute_data_query(query)
-        if credentials and credentials[0].conn_type != "csv":
+        if credentials and credentials[0].conn_type not in ["csv", "api"]:
+            log.info('===== start creating an engine =====')
             connection_string = credentials[0]
             engine = create_engine(connection_string.conn_string)
 
@@ -76,11 +82,31 @@ async def startup_event():
     #     raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
 
+def databaseConnType(db):
+    try:
+        credentials = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
+        if credentials.conn_type not in ["csv", "api"]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        log.error('Error reflecting source database: --->')
+        raise HTTPException(status_code=500, detail='Error reflecting source database')
+
+
 @router.get('/base_schemas')
 async def base_schemas(db: Session = Depends(get_main_db)):
     try:
+        # create engine if conn type id mssql/mysql/postgres and engine is not created
+        if databaseConnType(db):
+            if engine == None:
+                createEngine()
+                SessionLocal.configure(bind=engine)
+
+        # get the dictionary base repositories
         schemas = db.query(DataDictionaries).all()
         schemas = data_dictionary_list_entity(schemas)
+
         return schemas
     except Exception as e:
         log.error('System ran into an error --> ', e)
@@ -164,25 +190,6 @@ async def get_database_columns():
         raise HTTPException(status_code=500, detail='Error reflecting source database')
 
 
-@router.get('/get_csv_columns')
-async def get_csv_columns(db: Session = Depends(get_main_db)):
-    credentials = db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first()
-    if credentials and credentials.conn_type == "csv":
-        try:
-            query = text(f"""SELECT column_name FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name='{credentials.name.lower()}_csv_extract'""")
-            rows = execute_data_query(query)
-            dbTablesAndColumns = [row.column_name for row in rows]
-
-            return dbTablesAndColumns
-        except Exception as e:
-            log.error('Error getting csv columns: --->', e)
-            raise HTTPException(status_code=500, detail='Error reflecting source database')
-    else:
-        log.error('Error getting csv columns: --->')
-        raise HTTPException(status_code=500, detail='Error getting csv columns')
-
-
 @router.post('/add_mapped_variables/{baselookup}')
 async def add_mapped_variables(baselookup: str, variables: List[object], db: Session = Depends(get_main_db)):
     try:
@@ -202,10 +209,63 @@ async def add_mapped_variables(baselookup: str, variables: List[object], db: Ses
             db.add(mapped_variable)
         db.commit()
 
-        return {"status": 200, "message": "Mapped Variables added"}
+        # after saving mappings, generate query from them and save
+        extract_source_data_query = generate_query(baselookup, db)
+
+        existingQuery = db.query(ExtractsQueries).filter(ExtractsQueries.base_repository==baselookup,
+                                                ExtractsQueries.source_system_id==source_system.id).first()
+
+        if existingQuery:
+            extract = db.query(ExtractsQueries).filter(id=existingQuery.id).first()
+            extract.query = extract_source_data_query
+            
+        else:
+            extract = ExtractsQueries(query=extract_source_data_query,
+                            base_repository=baselookup,
+                            source_system_id=source_system.id)
+            db.add(extract)
+        db.commit()
+
+        return {"data": "Successfully added Mapped Variables"}
+
     except Exception as e:
         print(str(e))
         return {"status": 500, "message": e}
+
+
+@router.post('/add_query/{baselookup}')
+async def add_query(baselookup:str, customquery:QueryModel):
+    try:
+        #update existing configs for base repo
+        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+
+        dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering().all()
+
+        # add blank mappings
+        existingMappings = MappedVariables.objects(base_repository=baselookup,
+                                                   source_system_id=source_system['id']).allow_filtering().all()
+        for mapping in existingMappings:
+            mapping.delete()
+
+        for variable in dictTerms:
+            MappedVariables.create(tablename="-", columnname="-",
+                                   datatype="-", base_repository=baselookup,
+                                   base_variable_mapped_to=variable["term"],
+                                   join_by="-", source_system_id=source_system['id'])
+
+        # add custom query
+        existingQuery = ExtractsQueries.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().first()
+        if existingQuery:
+            ExtractsQueries.objects(id=existingQuery["id"]).update(
+                query=customquery.query
+            )
+        else:
+            ExtractsQueries.create(query=customquery.query,
+                                     base_repository=baselookup,
+                                       source_system_id=source_system['id'])
+        return {"data":"Custom Query for Variables successfully added"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error adding query for source system:" + str(e))
 
 
 @router.post('/test/mapped_variables/{baselookup}')
@@ -243,7 +303,7 @@ def validateMandatoryFields(baselookup: str, variables: List[object], processed_
             ).first()
 
             if dictTerms.is_required:
-                if "" in filteredData or None in filteredData or "NULL" in filteredData:
+                if "" in filteredData or "N/A" in filteredData or "NULL" in filteredData:
                     issueObj = {"base_variable": variableSet["base_variable_mapped_to"],
                                 "issue": "*Variable is Mandatory. Data is expected in all records.",
                                 "column_mapped": variableSet["columnname"],
@@ -261,10 +321,8 @@ def generate_test_query(baselookup: str, variableSet: List[object], db):
                                mapping["base_variable_mapped_to"] == 'PrimaryTableId']
         for variableMapped in variableSet:
             if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(
-                    variableMapped["tablename"] + "." + variableMapped["columnname"] + " as " + variableMapped[
-                        "base_variable_mapped_to"] + " ")
-                if all(variableMapped["tablename"] + "." not in s for s in mapped_joins):
+                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"].lower() +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
+                if all(variableMapped["tablename"]+"." not in s for s in mapped_joins):
                     if variableMapped["tablename"] != primaryTableDetails[0]['tablename']:
                         mapped_joins.append(" LEFT JOIN " + variableMapped["tablename"] + " ON " +
                                             primaryTableDetails[0]["tablename"].strip() + "." + primaryTableDetails[0][
@@ -288,61 +346,46 @@ def generate_test_query(baselookup: str, variableSet: List[object], db):
         return e
 
 
-@router.get('/generate_config/{baselookup}')
-async def generate_config(baselookup: str, db: Session = Depends(get_main_db)):
+@router.post('/test/query/mapped_variables/{baselookup}')
+async def test_query_mapped_variables(baselookup: str, customquery: QueryModel, db_session: Session = Depends(get_db),  db: Session = Depends(get_main_db)):
     try:
-        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first()
+        list_of_issues = []
 
-        configs = db.query(MappedVariables).filter(
-            MappedVariables.base_repository == baselookup,
-            MappedVariables.source_system_id == source_system.id
-        ).all()
-        configs = mapped_variable_list_entity(configs)
+        dictionary_terms = db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup).all()
+        dictionary_terms = data_dictionary_terms_list_entity(dictionary_terms)
+        terms_list = [term["term"] for term in dictionary_terms]
 
-        with open('configs/schemas/' + baselookup + '.conf', 'w') as f:
-            f.write(str(configs))
+        with db_session as session:
+            result = session.execute(text(customquery.query))
 
-        log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
-        return 'success'
+            columnsProvided = [col for col in result.keys()]# columns provided in query
+            baseRepoLoaded = [dict(zip(columnsProvided, row)) for row in result]
+
+            processed_results = [result for result in baseRepoLoaded]
+
+            # check if base variable terms are all in the columns provided in the custom query
+            for variable in terms_list:
+                if variable not in columnsProvided:
+                    issueObj = {"base_variable": "?",
+                                "issue": "*Variable is missing but is expected in the list of base variables.",
+                                "column_mapped": variable,
+                                "recommended_solution": "Ensure all expected base variables are in the query provided and match what is shared  above"}
+                    list_of_issues.append(issueObj)
+
+            # check for any unnecessary columns provided in query that are not base variable terms
+            for variable in columnsProvided:
+                if variable not in terms_list:
+                    issueObj = {"base_variable": "?",
+                                "issue": "*Variable is not part of the expected base variables.",
+                                "column_mapped": variable,
+                                "recommended_solution": "Ensure only variables that are listed as base variables are in the query provided"}
+                    list_of_issues.append(issueObj)
+
+        return {"data":list_of_issues}
     except Exception as e:
-        log.error("Error generating config ==> %s", str(e))
-
-        return e
+        raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
 
 
-@router.get('/import_config/{baselookup}')
-async def import_config(baselookup: str, db: Session = Depends(get_main_db)):
-    try:
-
-        query = text(f"SELECT * FROM mapped_variables WHERE base_repository='{baselookup}'")
-        existingVariables = execute_data_query(query)
-
-        for var in existingVariables:
-            db.query(MappedVariables).filter(MappedVariables.id == var["id"]).delete()
-
-        f = open('configs/schemas/' + baselookup + '.conf', 'r')
-
-        configImportStatements = f.read()
-        configs = json.loads(configImportStatements.replace("'", '"'))
-        for conf in configs:
-            variables = MappedVariables(tablename=conf["tablename"], columnname=conf["columnname"],
-                                        datatype=conf["datatype"], base_repository=conf["base_repository"],
-                                        base_variable_mapped_to=conf["base_variable_mapped_to"],
-                                        join_by=conf["join_by"])
-            db.add(variables)
-        db.commit()
-
-        f.close()
-        log.info("+++++++++ Successfully imported config ++++++++++")
-
-        return 'success'
-    except Exception as e:
-        log.error("Error importing config ==> %s", str(e))
-
-        return e
-
-
-# @router.get('/generate-query/{baselookup}')
 def generate_query(baselookup: str, db):
     try:
         source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first()
@@ -416,12 +459,18 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
     try:
         # cass_session = database.cassandra_session_factory()
 
-        extract_source_data_query = text(generate_query(baselookup, db))
-        source_data_count_query = text(source_total_count(baselookup, db))
+        # system config data
+        source_system = db.query(AccessCredentials).filter(
+            AccessCredentials.is_active == True).first()
+        site_config = db.query(SiteConfig).filter(
+            SiteConfig.is_active == True).first()
 
-        # started loading
-        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first()
-        site_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
+        existingQuery = ExtractsQueries.objects(base_repository=baselookup,
+                                                source_system_id=source_system['id']).allow_filtering().first()
+        extract_source_data_query = existingQuery["query"]
+
+        # ------ started extraction -------
+
         loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
                                             facility=f'{site_config.site_name}-{site_config.site_code}',
                                             source_system_id=source_system.id,
@@ -431,26 +480,40 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         db.add(loadedHistory)
         db.commit()
 
-        with get_db() as session:
-            get_count = session.execute(source_data_count_query)
-            source_count = get_count.scalar()
+        processed_results=[]
+        if source_system["conn_type"] not in ["csv","api"]:
+            # extract data from source DB
+            with get_db() as session:
 
-            result = session.execute(extract_source_data_query)
+                extractresults = session.execute(text(extract_source_data_query))
+                result= extractresults.fetchall()
+                print([row for row in result])
+                columns = extractresults.keys()
+                baseRepoLoaded = [dict(zip(columns,row)) for row in result]
 
-            columns = result.keys()
-            baseRepoLoaded = [dict(zip(columns, row)) for row in result]
-
+                processed_results=[result for result in baseRepoLoaded]
+        else:
+            # extract data from imported csv/api schema
+            baseRepoLoaded = cass_session.execute(extract_source_data_query)
             processed_results = [result for result in baseRepoLoaded]
 
+        # ------ --------------- -------
+        # ------ started loading -------
+
+        if len(processed_results) > 0:
+            # clear base repo data in preparation for inserting new data
             execute_query(text(f"TRUNCATE TABLE {baselookup}"))
-            # for data in processed_results:
+
             count_inserted = 0
             batch_size = 100
+
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]
                 for data in batch:
                     quoted_values = [
                         'NULL' if value is None
+                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "INT")
+                        else f'{bool(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "BOOLEAN")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)
                         else f"'{value}'" if ((db.query(DataDictionaryTerms).filter(
@@ -476,21 +539,27 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 log.info("+++++++ data batch +++++++")
                 log.info(f"+++++++ step i : count_inserted +++++++ {count_inserted} records")
 
-            # cass_session.execute(batch)
             log.info("+++++++ USL Base Repository Data saved +++++++")
 
-        baseRepoLoaded_json_data = json.dumps(baseRepoLoaded, default=str)
+        # end batch
+        baseRepoLoaded_json_data = json.dumps(processed_results, default=str)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
         await websocket.close()
         # ended loading
+        # TO DO - update history
         # loadedHistory.ended_at=datetime.utcnow()
         # loadedHistory.save()
         # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
 
         return {"data": baseRepoLoaded}
     except Exception as e:
+        error = json.dumps({"status_code":500, "message":e}, default=str)
+
+        # Send the error over the WebSocket
+        await websocket.send_text(error)
+        await websocket.close()
         log.error("Error loading data ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
@@ -563,20 +632,12 @@ async def progress_websocket_endpoint(
     print("websocket manifest -->", baselookup)
 
     try:
-        # count of data in source to be loaded
-        query = text(source_total_count(baselookup, db))
-        print("source query -->", query)
 
-        with db_session as session:
-            result = session.execute(query)
-            sourceCount = result.scalar()
-        print("source count -->", sourceCount)
         while True:
             data = await websocket.receive_text()
             baseRepo = data
             print("websocket manifest -->", baseRepo)
-            await load_data(baselookup, websocket, db)
-            # BackgroundTasks.add_task(inserted_total_count(baselookup,sourceCount,websocket))
+            await load_data(baselookup,websocket, db)
     except WebSocketDisconnect:
         log.error("Client disconnected")
         await websocket.close()

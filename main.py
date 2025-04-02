@@ -40,6 +40,8 @@ UserBase.metadata.create_all(bind=user_engine)
 
 app.include_router(access_api.router, tags=['Access'], prefix='/api/db_access')
 app.include_router(dictionary_mapper_api.router, tags=['Mapper'], prefix='/api/dictionary_mapper')
+app.include_router(flatfile_mapper_api.router, tags=['FlatFileMapper'], prefix='/api/flatfile_mapper')
+app.include_router(mappings_configs_api.router, tags=['MapperConfigs'], prefix='/api/mappings_config')
 app.include_router(usl_data_transmission_api.router, tags=['Transmission'], prefix='/api/usl_data')
 app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix='/api/data_dictionary')
 app.include_router(configuration_api.router, tags=['App Configuration'], prefix='/api/config')
