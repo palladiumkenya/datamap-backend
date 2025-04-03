@@ -1,53 +1,43 @@
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.orm import Session
 
+from database.database import get_db
 from models.models import SiteConfig
-from serializers.site_config_serializer import site_config_serializer_entity, site_config_list_entity
 
 router = APIRouter()
 
 
 @router.get("/all/configs")
-def get_site_configs():
+def get_site_configs(db: Session = Depends(get_db)):
     try:
-        configs = SiteConfig.objects.all()
-        if configs is not None:
-            response_config = [config for config in configs]
-        else:
-            response_config = None
-        return {"data": response_config}
+        configs = db.query(SiteConfig).all()
+        return {"data": configs}
     except SiteConfig.DoesNotExist:
         raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 
 @router.get("/active_site_config")
-def get_active_site_config():
+def get_active_site_config(db: Session = Depends(get_db)):
     try:
-        config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
-        if config is not None:
-            response_config = config
-        else:
-            response_config = None
-        return {"data": response_config}
-    except SiteConfig.DoesNotExist:
+        config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
+        return {"data": config}
+    except NoResultFound:
         raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/details/{config_id}")
-def get_site_config(config_id: str):
+def get_site_config(config_id: str, db: Session = Depends(get_db)):
     try:
-        config = SiteConfig.objects.filter(id=config_id).allow_filtering().first()
-        if config is not None:
-            response_config = config
-        else:
-            response_config = None
-        return {"data": response_config}
-    except SiteConfig.DoesNotExist:
+        config = db.query(SiteConfig).filter(SiteConfig.id == config_id).first()
+        return {"data": config}
+    except NoResultFound:
         raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -61,14 +51,15 @@ class SaveSiteConfig(BaseModel):
 
 
 @router.post("/add/config")
-def add_site_config(data: SaveSiteConfig):
+def add_site_config(data: SaveSiteConfig, db: Session = Depends(get_db)):
     try:
         if data.is_active:
-            site_configs = SiteConfig.objects.all()
-            if site_configs is not None:
-                for config in site_configs:
-                    config.is_active = False
-                    config.save()
+            db.query(SiteConfig).filter(
+                SiteConfig.is_active == True
+            ).update({
+                'is_active': False
+            })
+            db.commit()
 
         site_config = SiteConfig(
             site_name=data.site_name,
@@ -76,46 +67,45 @@ def add_site_config(data: SaveSiteConfig):
             primary_system=data.primary_system,
             is_active=data.is_active
         )
-        site_config.save()
+        db.add(site_config)
+        db.commit()
 
         return {"status": "success", "data": site_config}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # @router.put("/edit/config")
 @router.put("/edit/config/{config_id}")
-def edit_site_config(config_id: str, data: SaveSiteConfig):
+def edit_site_config(config_id: str, data: SaveSiteConfig, db: Session = Depends(get_db)):
     try:
         # deactivate other active site if updated site is set as default
         if data.is_active:
-            active_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
+            active_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
 
             if active_config is not None:
                 active_config.is_active = False
-                active_config.save()
+
 
         # update site config
-        SiteConfig.objects(id=config_id).update(
-            site_name=data.site_name,
-            site_code=data.site_code,
-            primary_system=data.primary_system,
-            is_active=data.is_active
-        )
+        db.query(SiteConfig).filter(SiteConfig.id == config_id).update({
+            "site_name": data.site_name,
+            "site_code": data.site_code,
+            "primary_system": data.primary_system,
+            "is_active": data.is_active
+        })
+        db.commit()
         return {"status": "success", "data": config_id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/delete/config/{config_id}")
-def delete_site_config(config_id: str):
+def delete_site_config(config_id: str, db: Session = Depends(get_db)):
     try:
-        site_config = SiteConfig.objects(id=config_id).delete()
+        site_config = db.query(SiteConfig).filter(SiteConfig.id == config_id).delete()
+        db.commit()
 
         return {"status": "success", "data": site_config}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-

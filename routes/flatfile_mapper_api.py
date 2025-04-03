@@ -6,7 +6,10 @@ from typing import List
 
 import logging
 
+from sqlalchemy.orm import Session
+
 import settings
+from database.database import get_db, execute_raw_data_query
 from models.models import AccessCredentials,MappedVariables, DataDictionaryTerms, DataDictionaries,SiteConfig,\
     TransmissionHistory, ExtractsQueries
 from database import database
@@ -21,26 +24,22 @@ handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(
 log.addHandler(handler)
 
 
-
-
 router = APIRouter()
 
 
-
-
-
 @router.get('/columns/{conn_type}')
-async def get_columns(conn_type:str, cass_session = Depends(database.cassandra_session_factory)):
-    credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+async def get_columns(conn_type: str, db: Session = Depends(get_db)):
+    credentials = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
     if credentials:
         try:
-            tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
-            query = f"SELECT column_name FROM system_schema.columns WHERE keyspace_name='datamap' AND " \
-                    f"table_name='{tableName}'"
-            rows = cass_session.execute(query)
+            tableName = f"{credentials.name.lower()}_{conn_type}_extract"
+            query = text(f"""SELECT column_name FROM information_schema.columns 
+            WHERE table_name='{tableName}'""")
+            rows = execute_raw_data_query(query)
             dbTablesAndColumns = [row["column_name"] for row in rows]
+            print(rows)
 
-            return {"data":dbTablesAndColumns}
+            return {"data": dbTablesAndColumns}
         except Exception as e:
             log.error('Error getting csv columns: --->', e)
             raise HTTPException(status_code=500, detail='Error reflecting source database')
@@ -50,68 +49,80 @@ async def get_columns(conn_type:str, cass_session = Depends(database.cassandra_s
 
 
 @router.post('/add/{conn_type}/mapped_variables/{baselookup}')
-async def add_mapped_variables(conn_type:str, baselookup:str, variables:List[object]):
+async def add_mapped_variables(conn_type: str, baselookup: str, variables: List[object], db: Session = Depends(get_db)):
     try:
         #delete existing configs for base repo
-        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
-        existingMappings = MappedVariables.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().all()
-        for mapping in existingMappings:
-            mapping.delete()
+        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
+        existingMappings = db.query(MappedVariables).filter(
+            MappedVariables.base_repository==baselookup,
+            MappedVariables.source_system_id==source_system.id
+        ).delete()
+        db.commit()
 
-        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        credentials = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
 
         for variableSet in variables:
-            MappedVariables.create(tablename=f"{credentials['name'].lower()}_{conn_type}_extract",
-                                   columnname=variableSet["columnname"],
-                                   datatype="-", base_repository=baselookup,
-                                   base_variable_mapped_to=variableSet["base_variable_mapped_to"],
-                                   join_by="-", source_system_id=source_system['id'])
+            variables = MappedVariables(
+                tablename=f"{credentials.name.lower()}_{conn_type}_extract",
+                columnname=variableSet["columnname"],
+                datatype="-", base_repository=baselookup,
+                base_variable_mapped_to=variableSet["base_variable_mapped_to"],
+                join_by="-", source_system_id=source_system.id
+            )
+            db.add(variables)
+        db.commit()
 
         # after saving mappings, generate query from them and save
-        extract_source_data_query = generate_flatfile_query(baselookup)
+        extract_source_data_query = generate_flatfile_query(baselookup, db)
 
-        existingQuery = ExtractsQueries.objects(base_repository=baselookup,
-                                                source_system_id=source_system['id']).allow_filtering().first()
+        existingQuery = db.query(ExtractsQueries).filter(
+            ExtractsQueries.base_repository==baselookup,
+            ExtractsQueries.source_system_id==source_system.id
+        ).first()
 
         if existingQuery:
-            ExtractsQueries.objects(id=existingQuery["id"]).update(
-                query=extract_source_data_query
-            )
+            existing_queries = db.query(ExtractsQueries).filter(ExtractsQueries.id==existingQuery.id).first()
+            existing_queries.query = extract_source_data_query
         else:
-            ExtractsQueries.create(query=extract_source_data_query,
-                                   base_repository=baselookup,
-                                   source_system_id=source_system['id'])
+            new_query = ExtractsQueries(
+                query=extract_source_data_query,
+                base_repository=baselookup,
+                source_system_id=source_system.id
+            )
+            db.add(new_query)
+        db.commit()
 
-        return {"data":"Successfully added Mapped Variables"}
+        return {"data": "Successfully added Mapped Variables"}
     except Exception as e:
-        return {"status":500, "message":e}
+        return {"status": 500, "message": e}
 
 
 @router.post('/test/{conn_type}/mapped_variables/{baselookup}')
-async def test_mapped_variables(conn_type:str, baselookup:str, variables:List[object], cass_session = Depends(database.cassandra_session_factory)):
+async def test_mapped_variables(conn_type:str, baselookup: str, variables: List[object], db: Session = Depends(get_db)):
     try:
-        extractQuery = generate_test_query(conn_type, variables)
+        extractQuery = generate_test_query(conn_type, variables, db)
 
-        with cass_session as session:
-            baseRepoLoaded = session.execute(extractQuery)
+        baseRepoLoaded = execute_raw_data_query(extractQuery)
 
-            processed_results = [result for result in baseRepoLoaded]
+        processed_results = [result for result in baseRepoLoaded]
 
-            # check if base variable terms are all in the columns provided in the custom query
-            list_of_issues = validateMandatoryFields(baselookup, variables, processed_results)
+        # check if base variable terms are all in the columns provided in the custom query
+        list_of_issues = validateMandatoryFields(baselookup, variables, processed_results, db)
 
-        return {"data":list_of_issues}
+        return {"data": list_of_issues}
     except Exception as e:
         # return {"status":500, "message":e
         raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
 
 
-
-def generate_flatfile_query(baselookup:str):
+def generate_flatfile_query(baselookup: str, db):
     try:
-        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first()
 
-        configs = MappedVariables.objects.filter(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering()
+        configs = db.query(MappedVariables).filter(
+            MappedVariables.base_repository==baselookup,
+            MappedVariables.source_system_id==source_system.id
+        ).all()
         configs = mapped_variable_list_entity(configs)
 
         mapped_columns = []
@@ -119,16 +130,19 @@ def generate_flatfile_query(baselookup:str):
 
         for conf in configs:
             if conf["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(conf["columnname"] +" as \""+conf["base_variable_mapped_to"]+"\" ")
+                mapped_columns.append(f'{conf["columnname"]}  as "{conf["base_variable_mapped_to"]}" ')
 
         columns = ", ".join(mapped_columns)
 
-        site_config = SiteConfig.objects.filter(is_active=True).allow_filtering().first()
-        mappedSiteCode = MappedVariables.objects.filter(base_repository=baselookup, base_variable_mapped_to='FacilityID',
-                                                        source_system_id=source_system['id']).allow_filtering().first()
+        site_config = db.query(SiteConfig).filter(SiteConfig.is_active==True).first()
+        mappedSiteCode = db.query(MappedVariables).filter(
+            MappedVariables.base_repository==baselookup,
+            MappedVariables.base_variable_mapped_to=='FacilityID',
+            MappedVariables.source_system_id==source_system.id
+        ).first()
 
-        tableName= configs[0]["tablename"]
-        query = f"SELECT {columns} from {tableName} "
+        tableName = configs[0]["tablename"]
+        query = text(f"SELECT {columns} from {tableName} ")
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
@@ -137,12 +151,11 @@ def generate_flatfile_query(baselookup:str):
         return e
 
 
-
-def generate_test_query(conn_type:str, variableSet:List[object]):
+def generate_test_query(conn_type: str, variableSet: List[object], db):
     try:
-        credentials = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        credentials = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
 
-        tableName = f"{credentials['name'].lower()}_{conn_type}_extract"
+        tableName = f"{credentials.name.lower()}_{conn_type}_extract"
 
         mapped_columns = []
 

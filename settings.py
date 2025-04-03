@@ -2,11 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    CASSANDRA_HOST: str
-    CASSANDRA_PORT: int
-    CASSANDRA_DB: str
-    CASSANDRA_USER: str
-    CASSANDRA_PASSWORD: str
+    DB_HOST: str
+    DB_PORT: int
+    DB: str
+    DB_USER: str
+    DB_PASSWORD: str
 
     STAGING_API: str
     BATCH_SIZE: int

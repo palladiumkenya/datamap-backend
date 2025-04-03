@@ -23,26 +23,49 @@ services:
     restart: always
 
 
-  cassandra:
-    image: cassandra:latest
-    container_name: datamap-cassandra
-    ports:
-      - "9042:9042"
+#  cassandra:
+#    image: cassandra:latest
+#    container_name: datamap-cassandra
+#    ports:
+#      - "9042:9042"
+#    env_file:
+#      - .env-cassandra
+#    volumes:
+#      - cassandra-data:/var/lib/cassandra
+#    networks:
+#      - datamap-network
+#    healthcheck:
+#      test: [ "CMD-SHELL", "nodetool status | grep -q 'UN'" ]
+#      interval: 30s
+#      timeout: 10s
+#      retries: 5
+#    restart: always
+
+  postgres:
+    container_name: datamap-postgres
+    image: postgres:latest
     env_file:
-      - .env-cassandra
+      - .env-postgres
+    environment:
+      POSTGRES_USER: datamap
+      POSTGRES_DB: datamap
+    ports:
+      - "5111:5432"
     volumes:
-      - cassandra-data:/var/lib/cassandra
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     networks:
       - datamap-network
     healthcheck:
-      test: [ "CMD-SHELL", "nodetool status | grep -q 'UN'" ]
+      test: ["CMD-SHELL", "pg_isready -U datamap"]
       interval: 30s
       timeout: 10s
       retries: 5
-    restart: always
+    restart: unless-stopped
+
 
 volumes:
-  cassandra-data:
+  postgres-data:
 
 networks:
   datamap-network:

@@ -1,96 +1,95 @@
 import uuid
 
-from cassandra.cqlengine import columns
-from cassandra.cqlengine.models import Model
+from datetime import datetime, timezone
 
-from datetime import datetime
+from sqlalchemy import Column, String, DateTime, Integer, Boolean
+from sqlalchemy.dialects.postgresql import UUID, VARCHAR
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+metadata = Base.metadata
 
 
-class DataDictionariesUSL(Model):
-    __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionaries_usl'
+class DataDictionariesUSL(Base):
+    __tablename__ = 'data_dictionaries_usl'
 
-    id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    name = columns.Text(required=True, index=True)
-    version_number = columns.Integer(required=True, default=0)  # dictionary version
-    is_published = columns.Boolean(default=False)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow())
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
-    deleted_at = columns.DateTime(required=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    name = Column(String, nullable=False)
+    version_number = Column(Integer, nullable=False, default=0)  # dictionary version
+    is_published = Column(Boolean, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    deleted_at = Column(DateTime)
 
     def save(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
 
 
-class DataDictionaryTermsUSL(Model):
-    __keyspace__ = 'datamap'
-    __table_name__ = 'data_dictionary_terms_usl'
+class DataDictionaryTermsUSL(Base):
+    __tablename__ = 'data_dictionary_terms_usl'
 
-    id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    dictionary = columns.Text(required=True, index=True)
-    dictionary_id = columns.Text(required=True, index=True)
-    term = columns.Text(required=True, index=True)
-    data_type = columns.Text(required=True)
-    is_required = columns.Boolean(default=False)
-    term_description = columns.Text(required=False)
-    expected_values = columns.Text(required=False)
-    is_active = columns.Boolean(required=True, default=True)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow())
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
-    deleted_at = columns.DateTime(required=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    dictionary = Column(String, nullable=False)
+    dictionary_id = Column(String, nullable=False)
+    term = Column(String, nullable=False)
+    data_type = Column(String, nullable=False)
+    is_required = Column(Boolean, default=False)
+    term_description = Column(String, nullable=True)
+    expected_values = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    deleted_at = Column(DateTime)
 
     def save(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
 
 
-class DictionaryChangeLog(Model):
-    __keyspace__ = 'datamap'
-    __table_name__ = 'dictionary_change_log'
+class DictionaryChangeLog(Base):
+    __tablename__ = 'dictionary_change_log'
 
-    id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    dictionary_id = columns.UUID(required=True, index=True)
-    term_id = columns.UUID(required=True)
-    operation = columns.Text(required=True)  # ADD, EDIT, DELETE
-    old_value = columns.Text(required=False)  # Store JSON string of old term
-    new_value = columns.Text(required=False)  # Store JSON string of new term
-    version_number = columns.Integer(required=True)
-    changed_at = columns.DateTime(required=True, default=datetime.utcnow())
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    dictionary_id = Column(UUID(as_uuid=True))
+    term_id = Column(UUID(as_uuid=True))
+    operation = Column(String, nullable=False)  # ADD, EDIT, DELETE
+    old_value = Column(String, nullable=True)  # Store JSON string of old term
+    new_value = Column(String, nullable=True)  # Store JSON string of new term
+    version_number = Column(Integer, nullable=False)
+    changed_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
 
     def save(self):
-        self.changed_at = datetime.utcnow()
+        self.changed_at = datetime.now(timezone.utc)
         super().save()
 
 
-class UniversalDictionaryTokens(Model):
-    __keyspace__ = 'datamap'
-    __table_name__ = 'universal_dictionary_tokens'
+class UniversalDictionaryTokens(Base):
+    __tablename__ = 'universal_dictionary_tokens'
 
-    id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    universal_dictionary_token = columns.Text(required=True)
-    secret = columns.Text(required=True)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow())
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
-    deleted_at = columns.DateTime(required=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    universal_dictionary_token = Column(String, nullable=False)
+    secret = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    deleted_at = Column(DateTime)
 
     def save(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
 
 
-class UniversalDictionaryFacilityPulls(Model):
-    __keyspace__ = 'datamap'
-    __table_name__ = 'universal_dictionary_facility_pulls'
+class UniversalDictionaryFacilityPulls(Base):
+    __tablename__ = 'universal_dictionary_facility_pulls'
 
-    id = columns.UUID(primary_key=True, default=uuid.uuid1)
-    facility_mfl_code = columns.Text(required=True)
-    date_last_updated = columns.DateTime(required=False)
-    dictionary_versions = columns.Text(required=True)
-    created_at = columns.DateTime(required=True, default=datetime.utcnow())
-    updated_at = columns.DateTime(required=True, default=datetime.utcnow())
-    deleted_at = columns.DateTime(required=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    facility_mfl_code = Column(String, nullable=False)
+    date_last_updated = Column(DateTime)
+    dictionary_versions = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    deleted_at = Column(DateTime)
 
     def save(self):
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         super().save()
