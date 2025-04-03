@@ -234,16 +234,16 @@ async def add_mapped_variables(baselookup: str, variables: List[object], db: Ses
 
 
 @router.post('/add_query/{baselookup}')
-async def add_query(baselookup:str, customquery:QueryModel):
+async def add_query(baselookup:str, customquery:QueryModel, db: Session = Depends(get_main_db)):
     try:
         #update existing configs for base repo
-        source_system = AccessCredentials.objects().filter(is_active=True).allow_filtering().first()
+        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
 
-        dictTerms = DataDictionaryTerms.objects.filter(dictionary=baselookup).allow_filtering().all()
+        dictTerms = db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup).all()
 
         # add blank mappings
-        existingMappings = MappedVariables.objects(base_repository=baselookup,
-                                                   source_system_id=source_system['id']).allow_filtering().all()
+        existingMappings = db.query(MappedVariables).filter(MappedVariables.base_repository==baselookup,
+                                                   MappedVariables.source_system_id==source_system.id).all()
         for mapping in existingMappings:
             mapping.delete()
 
@@ -251,18 +251,18 @@ async def add_query(baselookup:str, customquery:QueryModel):
             MappedVariables.create(tablename="-", columnname="-",
                                    datatype="-", base_repository=baselookup,
                                    base_variable_mapped_to=variable["term"],
-                                   join_by="-", source_system_id=source_system['id'])
+                                   join_by="-", source_system_id=source_system.id)
 
         # add custom query
-        existingQuery = ExtractsQueries.objects(base_repository=baselookup,source_system_id=source_system['id']).allow_filtering().first()
+        existingQuery = db.query(ExtractsQueries).filter(ExtractsQueries.base_repository==baselookup, ExtractsQueries.source_system_id==source_system.id).first()
         if existingQuery:
-            ExtractsQueries.objects(id=existingQuery["id"]).update(
-                query=customquery.query
-            )
+            existingQuery.query = customquery.query
         else:
-            ExtractsQueries.create(query=customquery.query,
-                                     base_repository=baselookup,
-                                       source_system_id=source_system['id'])
+            extract_query = ExtractsQueries(query=customquery.query,
+                            base_repository=baselookup,
+                            source_system_id=source_system.id)
+            db.add(extract_query)
+        db.commit()
         return {"data":"Custom Query for Variables successfully added"}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error adding query for source system:" + str(e))
@@ -321,7 +321,7 @@ def generate_test_query(baselookup: str, variableSet: List[object], db):
                                mapping["base_variable_mapped_to"] == 'PrimaryTableId']
         for variableMapped in variableSet:
             if variableMapped["base_variable_mapped_to"] != 'PrimaryTableId':
-                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"].lower() +" as '"+variableMapped["base_variable_mapped_to"]+"' ")
+                mapped_columns.append(variableMapped["tablename"]+ "."+variableMapped["columnname"].lower() +" as \""+variableMapped["base_variable_mapped_to"]+"\" ")
                 if all(variableMapped["tablename"]+"." not in s for s in mapped_joins):
                     if variableMapped["tablename"] != primaryTableDetails[0]['tablename']:
                         mapped_joins.append(" LEFT JOIN " + variableMapped["tablename"] + " ON " +
@@ -465,9 +465,11 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         site_config = db.query(SiteConfig).filter(
             SiteConfig.is_active == True).first()
 
-        existingQuery = ExtractsQueries.objects(base_repository=baselookup,
-                                                source_system_id=source_system['id']).allow_filtering().first()
-        extract_source_data_query = existingQuery["query"]
+        existingQuery = db.query(ExtractsQueries).filter(
+            ExtractsQueries.base_repository==baselookup,
+            ExtractsQueries.source_system_id==source_system.id
+        ).first()
+        extract_source_data_query = existingQuery.query
 
         # ------ started extraction -------
 
@@ -481,12 +483,12 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         db.commit()
 
         processed_results=[]
-        if source_system["conn_type"] not in ["csv","api"]:
+        if source_system.conn_type not in ["csv","api"]:
             # extract data from source DB
             with get_db() as session:
 
                 extractresults = session.execute(text(extract_source_data_query))
-                result= extractresults.fetchall()
+                result = extractresults.fetchall()
                 print([row for row in result])
                 columns = extractresults.keys()
                 baseRepoLoaded = [dict(zip(columns,row)) for row in result]
@@ -494,7 +496,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 processed_results=[result for result in baseRepoLoaded]
         else:
             # extract data from imported csv/api schema
-            baseRepoLoaded = cass_session.execute(extract_source_data_query)
+            baseRepoLoaded = execute_data_query(extract_source_data_query)
             processed_results = [result for result in baseRepoLoaded]
 
         # ------ --------------- -------
@@ -512,8 +514,8 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 for data in batch:
                     quoted_values = [
                         'NULL' if value is None
-                        else f'{int(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "INT")
-                        else f'{bool(value)}' if (DataDictionaryTerms.objects.filter(dictionary=baselookup,term=key).allow_filtering().first()["data_type"] == "BOOLEAN")
+                        else f'{int(value)}' if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "INT")
+                        else f'{bool(value)}' if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "BOOLEAN")
                         else f"'{value}'" if isinstance(value, str)
                         else f"'{value.strftime('%Y-%m-%d')}'" if isinstance(value, datetime.date)
                         else f"'{value}'" if ((db.query(DataDictionaryTerms).filter(
@@ -548,7 +550,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         await websocket.send_text(baseRepoLoaded_json_data)
         await websocket.close()
         # ended loading
-        # TO DO - update history
+        # TODO - update history
         # loadedHistory.ended_at=datetime.utcnow()
         # loadedHistory.save()
         # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())

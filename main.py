@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
-                    usl_data_transmission_api, site_configuration_api, user_management, transformations_api)
+                    usl_data_transmission_api, site_configuration_api, user_management, transformations_api,
+                    flatfile_mapper_api, mappings_configs_api)
 from models import models
 from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal

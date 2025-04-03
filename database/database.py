@@ -38,6 +38,12 @@ def execute_data_query(query):
         return result.fetchall()
 
 
+def execute_raw_data_query(query):
+    with engine.connect() as connection:
+        result = connection.execute(query)
+        return result.mappings().all()
+
+
 def execute_query(query, values=None):
     with engine.connect() as connection:
         if values:
