@@ -2,54 +2,53 @@ import logging
 
 from settings import settings
 
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import urllib.parse
+
 log = logging.getLogger()
 log.setLevel('DEBUG')
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 log.addHandler(handler)
 
-from cassandra.cluster import Cluster
-from cassandra.auth import PlainTextAuthProvider
+
+SQL_DATABASE_URL = f'postgresql://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB}'
+
+engine = create_engine(
+    SQL_DATABASE_URL, connect_args={}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
 
 
-from cassandra.cqlengine.connection import register_connection, set_default_connection, dict_factory
-
-KEYSPACE = settings.CASSANDRA_DB
-HOSTS = [settings.CASSANDRA_HOST]
-CREDENTIAL = {'username': settings.CASSANDRA_USER, 'password': settings.CASSANDRA_PASSWORD}
-AUTH_PROVIDER = PlainTextAuthProvider(username=settings.CASSANDRA_USER, password=settings.CASSANDRA_PASSWORD)
-
-
-def cassandra_session_factory():
-    cluster = Cluster(HOSTS, auth_provider=AUTH_PROVIDER)
-    session = cluster.connect()
-
-    log.info("Creating keyspace...")
-    session.execute("""
-        CREATE KEYSPACE IF NOT EXISTS %s
-        WITH replication = { 'class': 'SimpleStrategy', 'replication_factor': '2' }
-        """ % KEYSPACE
-                    )
-
-    log.info("Setting keyspace...")
-    session.set_keyspace(KEYSPACE)
-
-    session.row_factory = dict_factory
-    session.execute("USE {}".format(KEYSPACE))
-
-    return session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-def execute_query(query):
-
-    rows = _session.execute(query)
-
-    data = []
-    for row in rows:
-        data.append(row)
-    return data
+def execute_data_query(query):
+    with engine.connect() as connection:
+        result = connection.execute(query)
+        return result.fetchall()
 
 
-_session = cassandra_session_factory()
-register_connection(str(_session), session=_session)
-set_default_connection(str(_session))
+def execute_raw_data_query(query):
+    with engine.connect() as connection:
+        result = connection.execute(query)
+        return result.mappings().all()
+
+
+def execute_query(query, values=None):
+    with engine.connect() as connection:
+        if values:
+            result = connection.execute(query, values)
+        else:
+            result = connection.execute(query)
+        connection.commit()
+        return result.rowcount

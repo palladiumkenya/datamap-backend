@@ -1,19 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from cassandra.cqlengine.management import sync_table
 from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
-                    usl_data_transmission_api, site_configuration_api, user_management,mappings_configs_api, flatfile_mapper_api)
-from models.models import (AccessCredentials, MappedVariables, DataDictionaries, DataDictionaryTerms,
-                           USLConfig, SchedulesConfig, SiteConfig, TransmissionHistory, SchedulesLog, UniversalDictionaryConfig,
-                           ExtractsQueries)
-from models.usl_models import (DataDictionariesUSL, DataDictionaryTermsUSL, DictionaryChangeLog,
-                               UniversalDictionaryFacilityPulls, UniversalDictionaryTokens)
+                    usl_data_transmission_api, site_configuration_api, user_management, transformations_api,
+                    flatfile_mapper_api, mappings_configs_api)
+from models import models
+from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal
-from database import database
+from database.database import engine
 
 from utils.user_utils import seed_default_user
 
 app = FastAPI()
+
+models.Base.metadata.create_all(engine)
+usl_models.Base.metadata.create_all(engine)
 
 origins = [
     "*",
@@ -36,19 +36,6 @@ async def startup_event():
     finally:
         db.close()
 
-    sync_table(AccessCredentials)
-    sync_table(MappedVariables)
-    sync_table(DataDictionaries)
-    sync_table(DataDictionaryTerms)
-    sync_table(DataDictionariesUSL)
-    sync_table(DataDictionaryTermsUSL)
-    sync_table(DictionaryChangeLog)
-    sync_table(UniversalDictionaryConfig)
-    sync_table(UniversalDictionaryFacilityPulls)
-    sync_table(UniversalDictionaryTokens)
-    sync_table(SiteConfig)
-    sync_table(TransmissionHistory)
-    sync_table(ExtractsQueries)
 
 UserBase.metadata.create_all(bind=user_engine)
 
@@ -60,17 +47,10 @@ app.include_router(usl_data_transmission_api.router, tags=['Transmission'], pref
 app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix='/api/data_dictionary')
 app.include_router(configuration_api.router, tags=['App Configuration'], prefix='/api/config')
 app.include_router(site_configuration_api.router, tags=['Site Configuration'], prefix='/api/site_config')
+app.include_router(transformations_api.router, tags=['DQA Configuration'], prefix='/api/dqa')
 app.include_router(data_dictionary_usl_api.router, tags=['USL Data Dictionary'], prefix='/api/usl/data_dictionary')
 # TODO: MOVE READ TO ELSEWHERE
 # app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    cass_session = database.cassandra_session_factory()
-
-    cass_session.shutdown()
-    cass_session.cluster.shutdown()
 
 
 @app.get("/api/healthchecker")
