@@ -48,7 +48,10 @@ async def generate_config(baselookup: str, db: Session = Depends(get_db)):
         }
 
         with open('configs/schemas/' + baselookup + '.conf', 'w') as f:
-            f.write(str(generatedConfig).replace("'", '"'))
+            json_string = json.dumps(generatedConfig)
+            f.write(json_string)
+
+            # f.write(str(generatedConfig).replace("'", '"'))
 
         log.info(f'+++++++++++ Successfully uploaded config: {baselookup}+++++++++++')
         return 'success'
@@ -77,10 +80,12 @@ async def import_config(baselookup: str, db: Session = Depends(get_db)):
 
         # add the mappings
         for conf in configs["mappings"]:
-            MappedVariables(tablename=conf["tablename"], columnname=conf["columnname"],
+            configMappings = MappedVariables(tablename=conf["tablename"], columnname=conf["columnname"],
                             datatype=conf["datatype"], base_repository=conf["base_repository"],
                             base_variable_mapped_to=conf["base_variable_mapped_to"],
                             join_by=conf["join_by"], source_system_id=source_system.id)
+            db.add(configMappings)
+        db.commit()
 
         # add the query
         existingQuery = db.query(ExtractsQueries).filter(

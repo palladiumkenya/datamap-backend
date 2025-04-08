@@ -16,7 +16,8 @@ from typing import List
 import logging
 
 from database.database import execute_data_query, get_db as get_main_db, execute_query, engine as postgres_engine
-from database.source_system_database import get_source_db, engine as source_db_engine, createSourceDbEngine,SessionLocal
+from database.source_system_database import get_source_db, engine as source_db_engine, createSourceDbEngine,\
+    SessionLocal,metadata
 
 from models.models import AccessCredentials, MappedVariables, DataDictionaryTerms, DataDictionaries, SiteConfig, \
     TransmissionHistory, ExtractsQueries
@@ -76,11 +77,16 @@ router = APIRouter()
 #         db_session.close()
 #
 #
+metadata = None
 @router.on_event("startup")
 async def startup_event():
+    global metadata
     getEngineCreated = createSourceDbEngine()
     if getEngineCreated:
+        metadata = MetaData()
+        metadata.reflect(bind=getEngineCreated)
         SessionLocal.configure(bind=getEngineCreated)
+
 #     else:
 #         raise HTTPException(status_code=500, detail="Failed to initialize database engine")
 
