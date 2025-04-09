@@ -130,8 +130,8 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup}")
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
-        # total_records = totalRecordsresult.one()[0]
-        total_records = [row for row in totalRecordsresult][0]["count"]
+        total_records = totalRecordsresult[0][0]
+        # total_records = [row for row in totalRecordsresult][0]["count"]
 
         # Define batch size (how many records per batch)
         batch_size = settings.BATCH_SIZE
@@ -142,11 +142,13 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         select_statement = text(f"""
                                        SELECT * FROM {baselookup} 
                                    """)
-        totalResults = execute_data_query(select_statement)
+        allDataResults = execute_data_query(select_statement)
+        allDataResults =  [dict(row._mapping) for row in allDataResults]
+
         for batch in range(total_batches):
             offset = batch * batch_size
             limit = batch_size
-            result = totalResults[offset:offset + limit]
+            result = allDataResults[offset:offset + limit]
             log.info("++++++++ off set and limit +++++++", offset, limit)
             baseRepoLoaded = [
                 {key: (str(value) if isinstance(value, uuid.UUID)
@@ -158,7 +160,7 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
             # print('staging to send ', settings.STAGING_API+baselookup)
             log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
 
-            site_config = db.query(SiteConfig).filter(is_active=True).first()
+            site_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
 
             data = {
                 "manifest_id": manifest["manifest_id"],
