@@ -98,6 +98,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 for data in batch:
                     for key, value in data.items():
                         quoted_values = [ None if value is None
+                            else None if value == ''
                             else int(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "INT")
                             else bool(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "BOOLEAN")
                             else f"{value}" if isinstance(value, str)
