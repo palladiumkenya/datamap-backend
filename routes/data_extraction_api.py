@@ -89,7 +89,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
 
             count_inserted = 0
             batch_size = 100
-            idColumn = baselookup + "_id"
+            idColumn = baselookup.lower() + "_id"
 
             for i in range(0, len(processed_results), batch_size):
                 batch = processed_results[i:i + batch_size]

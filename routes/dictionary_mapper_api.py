@@ -38,15 +38,31 @@ log.addHandler(handler)
 router = APIRouter()
 
 
-metadata = None
+
+class EngineState:
+    def __init__(self):
+        self.sourceEngine = None
+        self.metadata = None
+
+engine_state = EngineState()
+
+async def createEngine():
+    engine_state.sourceEngine = createSourceDbEngine()
+    if engine_state.sourceEngine:
+        engine_state.metadata = MetaData()
+        engine_state.metadata.reflect(bind=engine_state.sourceEngine)
+        SessionLocal.configure(bind=engine_state.sourceEngine)
+def get_engine_state():
+    return engine_state
+
 @router.on_event("startup")
 async def startup_event():
-    global metadata
-    getEngineCreated = createSourceDbEngine()
-    if getEngineCreated:
-        metadata = MetaData()
-        metadata.reflect(bind=getEngineCreated)
-        SessionLocal.configure(bind=getEngineCreated)
+    await createEngine()
+#     getEngineCreated = createSourceDbEngine()
+#     if getEngineCreated:
+#         metadata = MetaData()
+#         metadata.reflect(bind=getEngineCreated)
+#         SessionLocal.configure(bind=getEngineCreated)
 
 #     else:
 #         raise HTTPException(status_code=500, detail="Failed to initialize database engine")
@@ -65,13 +81,11 @@ def databaseConnType(db):
 
 
 @router.get('/base_schemas')
-async def base_schemas(db: Session = Depends(get_main_db)):
+async def base_schemas(db: Session = Depends(get_main_db), engine_state: EngineState = Depends(get_engine_state)):
     try:
         # create engine if conn type id mssql/mysql/postgres and engine is not created
-        if databaseConnType(db):
-            if source_db_engine == None:
-                createSourceDbEngine()
-                SessionLocal.configure(bind=source_db_engine)
+        # if databaseConnType(db):
+        #     createEngine()
 
         # get the dictionary base repositories
         schemas = db.query(DataDictionaries).all()
@@ -134,16 +148,16 @@ async def base_variables_lookup(base_lookup: str, db: Session = Depends(get_main
 
 
 @router.get('/get_database_columns')
-async def get_database_columns():
-    if metadata:
+async def get_database_columns(engine_state: EngineState = Depends(get_engine_state)):
+    if engine_state.metadata:
         try:
             dbTablesAndColumns = {}
 
-            table_names = metadata.tables.keys()
+            table_names = engine_state.metadata.tables.keys()
 
             for table_name in table_names:
                 # Load the table schema from MetaData
-                table = Table(table_name, metadata, autoload_with=source_db_engine)
+                table = Table(table_name, engine_state.metadata, autoload_with=source_db_engine)
 
                 getcolumnnames = [{"name": "", "type": "-"}]
                 # add epmty string as part of options
