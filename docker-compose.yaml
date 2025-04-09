@@ -17,9 +17,9 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 4142
     networks:
       - datamap-network
-    depends_on:
-      cassandra:
-        condition: service_healthy
+#    depends_on:
+#      cassandra:
+#        condition: service_healthy
     restart: always
 
 
