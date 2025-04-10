@@ -3,8 +3,9 @@ import re
 import exrex
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import text, func
+# from lineagex.lineagex import lineagex
+from sqlalchemy.orm import Session, aliased
 
 from database.database import execute_query, get_db, execute_data_query, execute_raw_data_query
 from models.models import DataDictionaries, DataDictionaryTerms, DQAReport, Transformations
@@ -24,8 +25,10 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
     """)
     data = execute_raw_data_query(query)
     count_data = len(data)
-    failed_expected = []
+    total_failed = 0
+    processed_records = []
     for row in data:
+        failed_expected = []
         for term in terms:
             term_value = row[term.term.lower()]
             is_valid = re.match(term.expected_values, str(term_value), flags=re.IGNORECASE)
@@ -36,16 +39,19 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
                     'actual': term_value,
                     'example': exrex.getone(term.expected_values)
                 })
+        processed_records.append({'failed_dqa': failed_expected, 'row': row})
+        total_failed += len(failed_expected)
     report = DQAReport(
         base_table_name=baselookup,
-        valid_rows=count_data - len(failed_expected),
-        invalid_rows=len(failed_expected),
+        valid_rows=count_data - total_failed,
+        total_rows=count_data,
+        invalid_rows=total_failed,
         dictionary_version=dictionary.version_number
     )
     db.add(report)
     db.commit()
 
-    return {"message": data, "count": count_data, "failed": failed_expected}
+    return {"data": processed_records, "count": count_data}
 
 
 class TransformationData(BaseModel):
@@ -108,11 +114,25 @@ def transform_api(transform: TransformationData, db: Session = Depends(get_db)):
 @router.get("/transformation/report")
 def transformation_api_report(db: Session = Depends(get_db)):
     try:
-        transformation_data = db.query(Transformations).all()
+        report = db.query(DQAReport).order_by(DQAReport.created_at.desc()).all()
+
+        latest_per_base_subquery = db.query(
+            DQAReport.base_table_name,
+            func.max(DQAReport.created_at).label('latest_date')
+        ).group_by(DQAReport.base_table_name).subquery()
+        dqa_alias = aliased(DQAReport)
+        latest_per_base_report = db.query(dqa_alias).join(
+            latest_per_base_subquery,
+            (dqa_alias.base_table_name == latest_per_base_subquery.c.base_table_name) & (dqa_alias.created_at == latest_per_base_subquery.c.latest_date)
+        ).all()
+
+        transformation_data = db.query(Transformations).order_by(Transformations.created_at.desc()).all()
         data = transformation_list_serializer(transformation_data)
         return {
             'status': 'success',
-            'data': data
+            'transformations': data,
+            'dqa_report': report,
+            'latest_per_base_report': latest_per_base_report
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

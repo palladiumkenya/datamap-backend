@@ -204,6 +204,7 @@ class DQAReport(Base):
     base_table_name = Column(String, nullable=False)
     valid_rows = Column(Integer, nullable=False)
     invalid_rows = Column(Integer, nullable=False)
+    total_rows = Column(Integer, nullable=False)
     null_rows = Column(Integer, nullable=False, default=0)
     dictionary_version = Column(Integer, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
