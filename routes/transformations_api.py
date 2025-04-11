@@ -40,7 +40,8 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
                     'example': exrex.getone(term.expected_values)
                 })
         processed_records.append({'failed_dqa': failed_expected, 'row': row})
-        total_failed += len(failed_expected)
+        if len(failed_expected) > 0:
+            total_failed += 1
     report = DQAReport(
         base_table_name=baselookup,
         valid_rows=count_data - total_failed,
