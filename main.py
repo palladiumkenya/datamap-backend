@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
                     usl_data_transmission_api, site_configuration_api, user_management, transformations_api,
-                    flatfile_mapper_api, mappings_configs_api)
+                    flatfile_mapper_api, mappings_configs_api, data_extraction_api)
 from models import models
 from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal
@@ -10,7 +10,10 @@ from database.database import engine
 
 from utils.user_utils import seed_default_user
 
+
+
 app = FastAPI()
+
 
 models.Base.metadata.create_all(engine)
 usl_models.Base.metadata.create_all(engine)
@@ -44,6 +47,7 @@ app.include_router(dictionary_mapper_api.router, tags=['Mapper'], prefix='/api/d
 app.include_router(flatfile_mapper_api.router, tags=['FlatFileMapper'], prefix='/api/flatfile_mapper')
 app.include_router(mappings_configs_api.router, tags=['MapperConfigs'], prefix='/api/mappings_config')
 app.include_router(usl_data_transmission_api.router, tags=['Transmission'], prefix='/api/usl_data')
+app.include_router(data_extraction_api.router, tags=['Extraction'], prefix='/api/extract')
 app.include_router(data_dictionary_api.router, tags=['Data Dictionary'], prefix='/api/data_dictionary')
 app.include_router(configuration_api.router, tags=['App Configuration'], prefix='/api/config')
 app.include_router(site_configuration_api.router, tags=['Site Configuration'], prefix='/api/site_config')

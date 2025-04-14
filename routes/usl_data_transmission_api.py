@@ -2,6 +2,8 @@ from fastapi import Depends, HTTPException, BackgroundTasks, WebSocket, WebSocke
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from sqlalchemy import desc
+
 from database.database import get_db, execute_data_query
 from models.models import AccessCredentials
 import json
@@ -49,17 +51,17 @@ async def history(db: Session = Depends(get_db)):
         history = []
         for dictionary in dictionaries:
             lastLoaded = db.query(TransmissionHistory).filter(
-                TransmissionHistory.usl_repository_name == dictionary.name,
-                TransmissionHistory.action == 'Loading').first()
+                    TransmissionHistory.usl_repository_name == dictionary.name, TransmissionHistory.action == 'Loaded')\
+                .order_by(desc(TransmissionHistory.facility), desc(TransmissionHistory.created_at)).limit(10).first()
             lastSent = db.query(TransmissionHistory).filter(
-                TransmissionHistory.usl_repository_name == dictionary.name,
-                TransmissionHistory.action == 'Sending').first()
+                    TransmissionHistory.usl_repository_name == dictionary.name, TransmissionHistory.action == 'Sent')\
+                .order_by(desc(TransmissionHistory.facility), desc(TransmissionHistory.created_at)).limit(10).first()
+
             if lastSent:
                 history.append(lastSent)
             if lastLoaded:
                 history.append(lastLoaded)
 
-        # history = [row for row in results]
         return {"data": history}
     except Exception as e:
         log.error("Error fetching history data ==> %s", str(e))
@@ -105,7 +107,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
         # cass_session.cluster.shutdown()
         log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++")
 
-        trans_history = TransmissionHistory(usl_repository_name=baselookup, action="Sending",
+        trans_history = TransmissionHistory(usl_repository_name=baselookup, action="Sent",
                                             facility=f'{site_config.site_name}-{site_config.site_code}',
                                             source_system_id=site_config.id,
                                             source_system_name=site_config.primary_system,
@@ -130,8 +132,8 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup}")
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
-        # total_records = totalRecordsresult.one()[0]
-        total_records = [row for row in totalRecordsresult][0]["count"]
+        total_records = totalRecordsresult[0][0]
+        # total_records = [row for row in totalRecordsresult][0]["count"]
 
         # Define batch size (how many records per batch)
         batch_size = settings.BATCH_SIZE
@@ -142,11 +144,13 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         select_statement = text(f"""
                                        SELECT * FROM {baselookup} 
                                    """)
-        totalResults = execute_data_query(select_statement)
+        allDataResults = execute_data_query(select_statement)
+        allDataResults =  [dict(row._mapping) for row in allDataResults]
+
         for batch in range(total_batches):
             offset = batch * batch_size
             limit = batch_size
-            result = totalResults[offset:offset + limit]
+            result = allDataResults[offset:offset + limit]
             log.info("++++++++ off set and limit +++++++", offset, limit)
             baseRepoLoaded = [
                 {key: (str(value) if isinstance(value, uuid.UUID)
@@ -158,7 +162,7 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
             # print('staging to send ', settings.STAGING_API+baselookup)
             log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
 
-            site_config = db.query(SiteConfig).filter(is_active=True).first()
+            site_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
 
             data = {
                 "manifest_id": manifest["manifest_id"],

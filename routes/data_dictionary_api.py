@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import requests
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from sqlalchemy import Column, UUID, DateTime, String, Integer, Boolean, Float, Double, MetaData, Table
+from sqlalchemy import Column, UUID, DateTime, String, Integer, Boolean, Float, Double, MetaData, Table, inspect
 from sqlalchemy.orm import Session
 
 from database.database import get_db, engine
@@ -193,6 +193,7 @@ def create_tables(db):
         columns_list = [column for column in tbl_columns.values()]
         # Create dynamic table class and synchronize with PSQL
         dynamic_table = Table(table_name, metadata, *columns_list)
+
 
         if engine.dialect.has_table(table_name=table_name, connection=engine.connect()):
             dynamic_table.drop(engine)
