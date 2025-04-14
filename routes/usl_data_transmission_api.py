@@ -129,7 +129,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
 async def send_progress(baselookup: str, manifest: object, websocket: WebSocket, db):
     try:
 
-        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} WHERE data_required_check_fail = false")
+        totalRecordsquery = text("SELECT COUNT(*) as count FROM :baselookup WHERE data_required_check_fail = false").bindparams(baselookup=baselookup)
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
         total_records = totalRecordsresult[0][0]
