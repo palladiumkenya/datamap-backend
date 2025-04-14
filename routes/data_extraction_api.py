@@ -7,8 +7,6 @@ from sqlalchemy.orm import sessionmaker, Session
 import datetime
 from contextlib import contextmanager
 from pydantic import BaseModel
-import uuid
-
 import json
 from fastapi import APIRouter
 from typing import List
@@ -23,6 +21,9 @@ from models.models import AccessCredentials, MappedVariables, DataDictionaryTerm
 from models import models
 from serializers.dictionary_mapper_serializer import mapped_variable_entity, mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
+
+
+
 
 class QueryModel(BaseModel):
     query: str
@@ -54,7 +55,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
 
         # ------ started extraction -------
 
-        loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loading",
+        loadedHistory = TransmissionHistory(usl_repository_name=baselookup, action="Loaded",
                                             facility=f'{site_config.site_name}-{site_config.site_code}',
                                             source_system_id=source_system.id,
                                             source_system_name=site_config.primary_system,
@@ -133,7 +134,6 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 # db.add_all(new_records)
                 db.commit()
 
-                # count_inserted = inserted_total_count(baselookup)
                 await websocket.send_text(f"{count_inserted}")
                 log.info("+++++++ data batch +++++++")
                 log.info(f"+++++++ step i : count_inserted +++++++ {count_inserted} records")
@@ -163,69 +163,9 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         raise HTTPException(status_code=500, detail="Error loading data:" + str(e))
 
 
-def source_total_count(baselookup: str, db):
-    try:
-        configs = db.query(MappedVariables).filter(MappedVariables.base_repository==baselookup).all()
-        configs = mapped_variable_list_entity(configs)
-
-        primaryTableDetails = db.query(MappedVariables).filter(
-            MappedVariables.base_repository == baselookup,
-            MappedVariables.base_variable_mapped_to == 'PrimaryTableId'
-        ).first()
-
-        mapped_columns = []
-        mapped_joins = []
-
-        for conf in configs:
-            if conf['base_variable_mapped_to'] != 'PrimaryTableId':
-                mapped_columns.append(
-                    conf['tablename'] + "." + conf['columnname'] + " as \"" + conf['base_variable_mapped_to'] + "\" ")
-                if all(conf['tablename'] + "." not in s for s in mapped_joins):
-                    if conf['tablename'] != primaryTableDetails.tablename:
-                        mapped_joins.append(" LEFT JOIN " + conf['tablename'] + " ON " + primaryTableDetails.tablename.strip()
-                                            + "." + primaryTableDetails.columnname.strip() +
-                                            " = " + conf['tablename'].strip() + "." + conf['join_by'].strip())
-
-        columns = ", ".join(mapped_columns)
-        joins = ", ".join(mapped_joins)
-
-        source_system = db.query(AccessCredentials).filter(AccessCredentials.is_active==True).first()
-        site_config = db.query(SiteConfig).filter(SiteConfig.is_active==True).first()
-        mappedSiteCode = db.query(MappedVariables).filter(
-            MappedVariables.base_repository == baselookup,
-            MappedVariables.base_variable_mapped_to == 'FacilityID',
-            MappedVariables.source_system_id == source_system.id
-        ).first()
-
-        query = f"""SELECT count(*) as count from {primaryTableDetails.tablename} 
-        {joins.replace(',', '')}
-        WHERE  CAST({mappedSiteCode.tablename}.{mappedSiteCode.columnname} AS INT) = {site_config.site_code}"""
-
-        log.info("++++++++++ Successfully generated count query +++++++++++")
-        return query
-    except Exception as e:
-        log.error("Error generating query. ERROR: ==> %s", str(e))
-
-        return e
-
-
-def inserted_total_count(baselookup: str):
-    try:
-        totalRecordsquery = f"SELECT COUNT(*) count as count FROM {baselookup}"
-        totalRecordsresult = execute_data_query(totalRecordsquery)
-
-        insertedCount = totalRecordsresult[0].count
-        print("insertedCount--->", insertedCount)
-
-        return insertedCount
-    except Exception as e:
-        log.error("Error getting total inserted query. ERROR: ==> %s", str(e))
-        return 0
-
-
 @router.websocket("/ws/load/progress/{baselookup}")
 async def progress_websocket_endpoint(
-        baselookup: str, websocket: WebSocket, db_session: Session = Depends(get_source_db), db: Session = Depends(get_main_db)
+        baselookup: str, websocket: WebSocket, db: Session = Depends(get_main_db)
 ):
     await websocket.accept()
     print("websocket manifest -->", baselookup)
@@ -243,3 +183,9 @@ async def progress_websocket_endpoint(
     except Exception as e:
         log.error("Websocket error ==> %s", str(e))
         await websocket.close()
+
+
+
+
+
+

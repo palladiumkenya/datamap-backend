@@ -10,6 +10,7 @@ import urllib.parse
 from serializers.access_credentials_serializer import access_credential_entity
 from database.database import execute_data_query, get_db as get_main_db, execute_query, engine as postgres_engine
 from models.models import AccessCredentials
+from routes.access_api import test_db
 
 
 
@@ -39,13 +40,17 @@ def createSourceDbEngine():
         if credentials and credentials["conn_type"] not in ["csv", "api"]:
             log.info('===== start creating an engine =====')
             connection_string = credentials["conn_string"]
-            engine = create_engine(connection_string)
+            success, error_message = test_db(connection_string)
+            if success:
+                engine = create_engine(connection_string)
+                inspector = inspect(engine)
+                metadata = MetaData()
+                metadata.reflect(bind=engine)
+                log.info('===== Database reflected ====')
+                return engine
+            else:
+                log.error("Cannot connect to DB using connection string provided")
 
-            inspector = inspect(engine)
-            metadata = MetaData()
-            metadata.reflect(bind=engine)
-            log.info('===== Database reflected ====')
-            return engine
     except SQLAlchemyError as e:
         # Log the error or handle it as needed
         log.error('===== Database not reflected ==== ERROR:', str(e))

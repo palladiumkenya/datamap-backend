@@ -2,6 +2,8 @@ from fastapi import Depends, HTTPException, BackgroundTasks, WebSocket, WebSocke
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from sqlalchemy import desc
+
 from database.database import get_db, execute_data_query
 from models.models import AccessCredentials
 import json
@@ -49,17 +51,17 @@ async def history(db: Session = Depends(get_db)):
         history = []
         for dictionary in dictionaries:
             lastLoaded = db.query(TransmissionHistory).filter(
-                TransmissionHistory.usl_repository_name == dictionary.name,
-                TransmissionHistory.action == 'Loading').first()
+                    TransmissionHistory.usl_repository_name == dictionary.name, TransmissionHistory.action == 'Loaded')\
+                .order_by(desc(TransmissionHistory.facility), desc(TransmissionHistory.created_at)).limit(10).first()
             lastSent = db.query(TransmissionHistory).filter(
-                TransmissionHistory.usl_repository_name == dictionary.name,
-                TransmissionHistory.action == 'Sending').first()
+                    TransmissionHistory.usl_repository_name == dictionary.name, TransmissionHistory.action == 'Sent')\
+                .order_by(desc(TransmissionHistory.facility), desc(TransmissionHistory.created_at)).limit(10).first()
+
             if lastSent:
                 history.append(lastSent)
             if lastLoaded:
                 history.append(lastLoaded)
 
-        # history = [row for row in results]
         return {"data": history}
     except Exception as e:
         log.error("Error fetching history data ==> %s", str(e))
@@ -105,7 +107,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
         # cass_session.cluster.shutdown()
         log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++")
 
-        trans_history = TransmissionHistory(usl_repository_name=baselookup, action="Sending",
+        trans_history = TransmissionHistory(usl_repository_name=baselookup, action="Sent",
                                             facility=f'{site_config.site_name}-{site_config.site_code}',
                                             source_system_id=site_config.id,
                                             source_system_name=site_config.primary_system,
