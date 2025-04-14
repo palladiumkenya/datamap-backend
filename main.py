@@ -8,10 +8,12 @@ from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal
 from database.database import engine
 
-
 from utils.user_utils import seed_default_user
 
+
+
 app = FastAPI()
+
 
 models.Base.metadata.create_all(engine)
 usl_models.Base.metadata.create_all(engine)
