@@ -15,6 +15,7 @@ def dqa_check(baselookup: str, db):
     data = execute_raw_data_query(query)
     count_data = len(data)
     total_failed = 0
+    total_failed_null_check = 0
     processed_records = []
     for row in data:
         failed_expected = []
@@ -46,12 +47,14 @@ def dqa_check(baselookup: str, db):
                 WHERE {baselookup}_id = {row[baselookup + '_id']}
             """)
             execute_query(update_query)
+            total_failed_null_check += 1
     report = DQAReport(
         base_table_name=baselookup,
         valid_rows=count_data - total_failed,
         total_rows=count_data,
         invalid_rows=total_failed,
-        dictionary_version=dictionary.version_number
+        dictionary_version=dictionary.version_number,
+        null_rows=total_failed_null_check
     )
     db.add(report)
     db.commit()
