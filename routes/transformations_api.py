@@ -29,19 +29,34 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
     processed_records = []
     for row in data:
         failed_expected = []
+        failed_null_check = False
         for term in terms:
             term_value = row[term.term.lower()]
             is_valid = re.match(term.expected_values, str(term_value), flags=re.IGNORECASE)
+            if term.is_required and term_value is None:
+                failed_null_check = True
             if not is_valid:
                 failed_expected.append({
                     'term': term.term.lower(),
                     'expected': term.expected_values,
-                    'actual': term_value,
-                    'example': exrex.getone(term.expected_values)
+                    'actual': term_value
                 })
         processed_records.append({'failed_dqa': failed_expected, 'row': row})
         if len(failed_expected) > 0:
+            update_query = text(f"""
+                UPDATE {baselookup} 
+                SET data_valid = {False} and invalid_data_reasons = {failed_expected} 
+                WHERE {baselookup}_id = {row[baselookup+'_id']}
+            """)
+            execute_query(update_query)
             total_failed += 1
+        if failed_null_check:
+            update_query = text(f"""
+                UPDATE {baselookup} 
+                SET data_required_check_fail = {True}
+                WHERE {baselookup}_id = {row[baselookup+'_id']}
+            """)
+            execute_query(update_query)
     report = DQAReport(
         base_table_name=baselookup,
         valid_rows=count_data - total_failed,
@@ -54,40 +69,40 @@ def transformation_api(baselookup: str, db: Session = Depends(get_db)):
 
     return {"data": processed_records, "count": count_data}
 
-
-class TransformationData(BaseModel):
-    invalid_value: str = Field(..., description="current value of the field")
-    valid_value: str = Field(..., description="new value of the field")
-    base_table: str = Field(..., description="table to implement change")
-    column: str = Field(..., description="table to implement change")
-
-
-@router.post("/transform")
-def transform_api(transform: TransformationData, db: Session = Depends(get_db)):
-    try:
-        dictionary = db.query(DataDictionaries).filter(DataDictionaries.name==transform.base_table).first()
-        dictionary_term = db.query(DataDictionaryTerms).filter(
-            DataDictionaryTerms.dictionary_id==dictionary.id,
-            DataDictionaryTerms.term==transform.column
-        ).first()
-
-        if dictionary_term:
-            is_valid = re.match(dictionary_term.expected_values, transform.valid_value)
-            if not is_valid:
-                raise HTTPException()
-
-        update_query = f"""
-            UPDATE {transform.base_table} 
-            SET {transform.column} = {transform.valid_value} 
-            WHERE {transform.column} = {transform.invalid_value};
-        """
-
-        execute_query(update_query)
-        return {"message": "success"}
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
+# Transformations removed for this version
+# class TransformationData(BaseModel):
+#     invalid_value: str = Field(..., description="current value of the field")
+#     valid_value: str = Field(..., description="new value of the field")
+#     base_table: str = Field(..., description="table to implement change")
+#     column: str = Field(..., description="table to implement change")
+#
+#
+# @router.post("/transform")
+# def transform_api(transform: TransformationData, db: Session = Depends(get_db)):
+#     try:
+#         dictionary = db.query(DataDictionaries).filter(DataDictionaries.name==transform.base_table).first()
+#         dictionary_term = db.query(DataDictionaryTerms).filter(
+#             DataDictionaryTerms.dictionary_id==dictionary.id,
+#             DataDictionaryTerms.term==transform.column
+#         ).first()
+#
+#         if dictionary_term:
+#             is_valid = re.match(dictionary_term.expected_values, transform.valid_value)
+#             if not is_valid:
+#                 raise HTTPException()
+#
+#         update_query = f"""
+#             UPDATE {transform.base_table}
+#             SET {transform.column} = {transform.valid_value}
+#             WHERE {transform.column} = {transform.invalid_value};
+#         """
+#
+#         execute_query(update_query)
+#         return {"message": "success"}
+#
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e)) from e
+#
 
 # @router.get("/suggested-transformations")
 # def transformation_suggestions_api():
