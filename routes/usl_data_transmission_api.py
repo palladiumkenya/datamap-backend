@@ -74,7 +74,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
         # cass_session = database.cassandra_session_factory()
 
         count_query = text(f"""
-                           SELECT count(*) count FROM {baselookup}
+                           SELECT count(*) count FROM {baselookup} WHERE data_required_check_fail = false
                        """)
         count = execute_data_query(count_query)
         print(count[0].count)
@@ -129,7 +129,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
 async def send_progress(baselookup: str, manifest: object, websocket: WebSocket, db):
     try:
 
-        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup}")
+        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} WHERE data_required_check_fail = false")
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
         total_records = totalRecordsresult[0][0]
@@ -142,10 +142,10 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         processed_batches = 0
 
         select_statement = text(f"""
-                                       SELECT * FROM {baselookup} 
+                                       SELECT * FROM {baselookup} WHERE data_required_check_fail = false
                                    """)
         allDataResults = execute_data_query(select_statement)
-        allDataResults =  [dict(row._mapping) for row in allDataResults]
+        allDataResults = [dict(row._mapping) for row in allDataResults]
 
         for batch in range(total_batches):
             offset = batch * batch_size
