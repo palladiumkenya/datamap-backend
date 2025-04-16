@@ -155,7 +155,7 @@ def get_pgsql_column(data_type):
     elif str(data_type).upper() == "DOUBLE":
         return Double
     elif str(data_type).upper() == "UUID":
-        return  UUID(as_uuid=True)
+        return UUID(as_uuid=True)
     else:
         # Default to Text if data type not recognized
         return String
@@ -187,11 +187,15 @@ def create_tables(db):
     for table_name, tbl_columns in table_columns.items():
         # Add primary key column to each table
         tbl_columns[f'{table_name}_id'] = Column(f'{table_name}_id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+        tbl_columns['data_valid'] = Column('data_valid', Boolean, default=False)
+        tbl_columns['data_required_check_fail'] = Column('data_required_check_fail', Boolean, default=False)
+        tbl_columns['invalid_data_reasons'] = Column('invalid_data_reasons', String, nullable=True)
         columns_list = [column for column in tbl_columns.values()]
         # Create dynamic table class and synchronize with PSQL
         dynamic_table = Table(table_name, metadata, *columns_list)
 
-        if inspect(engine).has_table(table_name):
+
+        if engine.dialect.has_table(table_name=table_name, connection=engine.connect()):
             dynamic_table.drop(engine)
         metadata.create_all(engine)
 
