@@ -21,8 +21,7 @@ from models.models import AccessCredentials, MappedVariables, DataDictionaryTerm
 from models import models
 from serializers.dictionary_mapper_serializer import mapped_variable_entity, mapped_variable_list_entity
 from serializers.data_dictionary_serializer import data_dictionary_list_entity, data_dictionary_terms_list_entity
-
-
+from utils.dqa_check import dqa_check
 
 
 class QueryModel(BaseModel):
@@ -36,7 +35,6 @@ handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(
 log.addHandler(handler)
 
 router = APIRouter()
-
 
 
 async def load_data(baselookup: str, websocket: WebSocket, db):
@@ -65,7 +63,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         db.commit()
 
         processed_results=[]
-        if source_system.conn_type not in ["csv","api"]:
+        if source_system.conn_type not in ["csv", "api"]:
             # extract data from source DB
             with get_source_db() as session:
 
@@ -142,6 +140,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
 
         # end batch
         baseRepoLoaded_json_data = json.dumps(processed_results, default=str)
+        dqa_check(baselookup, db)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
@@ -176,7 +175,7 @@ async def progress_websocket_endpoint(
             data = await websocket.receive_text()
             baseRepo = data
             print("websocket manifest -->", baseRepo)
-            await load_data(baselookup,websocket, db)
+            await load_data(baselookup, websocket, db)
     except WebSocketDisconnect:
         log.error("Client disconnected")
         await websocket.close()
