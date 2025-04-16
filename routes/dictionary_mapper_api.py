@@ -84,8 +84,8 @@ def databaseConnType(db):
 async def base_schemas(db: Session = Depends(get_main_db), engine_state: EngineState = Depends(get_engine_state)):
     try:
         # create engine if conn type id mssql/mysql/postgres and engine is not created
-        # if databaseConnType(db):
-        #     createEngine()
+        if databaseConnType(db):
+            await createEngine()
 
         # get the dictionary base repositories
         schemas = db.query(DataDictionaries).all()
