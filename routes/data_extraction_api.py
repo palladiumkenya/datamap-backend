@@ -140,7 +140,6 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
 
         # end batch
         baseRepoLoaded_json_data = json.dumps(processed_results, default=str)
-        dqa_check(baselookup, db)
 
         # Send the JSON string over the WebSocket
         await websocket.send_text(baseRepoLoaded_json_data)
@@ -150,6 +149,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
         # loadedHistory.ended_at=datetime.utcnow()
         # loadedHistory.save()
         # TransmissionHistory.objects(id=loadedHistory.id).update(ended_at=datetime.utcnow())
+        dqa_check(baselookup, db)
 
         return {"data": baseRepoLoaded}
     except Exception as e:
