@@ -95,12 +95,15 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
             "count": [row.count for row in count][0],
             "columns": [row.column_name for row in columns],
             "session_id": uuid.uuid4(),
-            "source_system_name": site_config.primary_system,
             # "source_system_version": source_system['system_version'],
             "source_system_version": "1",
             "opendive_version": "1.0.0",
             "facility_name": site_config.site_name,
-            "facility_id": site_config.site_code
+            "facility_id": site_config.site_code,
+            "facility_country": site_config.country,
+            "facility_region": site_config.region,
+            "facility_organization": site_config.organization,
+            "source_system_name": site_config.primary_system,
 
         }
 
@@ -129,7 +132,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
 async def send_progress(baselookup: str, manifest: object, websocket: WebSocket, db):
     try:
 
-        totalRecordsquery = text("SELECT COUNT(*) as count FROM :baselookup WHERE data_required_check_fail = false").bindparams(baselookup=baselookup)
+        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} WHERE data_required_check_fail = false")
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
         total_records = totalRecordsresult[0][0]

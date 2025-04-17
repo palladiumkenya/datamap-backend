@@ -132,6 +132,10 @@ class SiteConfig(Base):
     site_name = Column(String, nullable=False)
     site_code = Column(String, nullable=False)
     primary_system = Column(String, nullable=False)
+    country = Column(String, nullable=False)
+    region = Column(String, nullable=False)
+    organization = Column(String, nullable=False)
+    organization_type = Column(String, nullable=False, default="Partner")
     other_systems = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False, default=False)
 
