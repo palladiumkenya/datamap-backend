@@ -101,7 +101,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                             else int(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "INT")
                             else bool(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "BOOLEAN")
                             else f"{value}" if isinstance(value, str)
-                            else f"{value.strftime('%Y-%m-%d')}" if isinstance(value, datetime.date)
+                            else f"{value.strftime('%Y-%m-%d')}" if isinstance(value, datetime.date)and ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "DATETIME2")
                             else f"{value}" if ((db.query(DataDictionaryTerms).filter(
                                 DataDictionaryTerms.dictionary == baselookup,
                                 DataDictionaryTerms.term == key).first()).data_type == "NVARCHAR")
