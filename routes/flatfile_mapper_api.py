@@ -82,10 +82,10 @@ async def add_mapped_variables(conn_type: str, baselookup: str, variables: List[
 
         if existingQuery:
             existing_queries = db.query(ExtractsQueries).filter(ExtractsQueries.id==existingQuery.id).first()
-            existing_queries.query = extract_source_data_query
+            existing_queries.query = f'{extract_source_data_query}'
         else:
             new_query = ExtractsQueries(
-                query=extract_source_data_query,
+                query=f'{extract_source_data_query}',
                 base_repository=baselookup,
                 source_system_id=source_system.id
             )
@@ -94,7 +94,8 @@ async def add_mapped_variables(conn_type: str, baselookup: str, variables: List[
 
         return {"data": "Successfully added Mapped Variables"}
     except Exception as e:
-        return {"status": 500, "message": e}
+        log.error("Error adding mappings for source system:" + str(e))
+        raise HTTPException(status_code=500, detail="Error adding mappings for source system:" + str(e))
 
 
 @router.post('/test/{conn_type}/mapped_variables/{baselookup}')
