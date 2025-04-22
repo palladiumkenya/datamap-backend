@@ -36,20 +36,22 @@ def createSourceDbEngine():
 
     try:
         active_credentials = (db.query(AccessCredentials).filter(AccessCredentials.is_active == True).first())
-        credentials = access_credential_entity(active_credentials)
-        if credentials and credentials["conn_type"] not in ["csv", "api"]:
-            log.info('===== start creating an engine =====')
-            connection_string = credentials["conn_string"]
-            success, error_message = test_db(connection_string)
-            if success:
-                engine = create_engine(connection_string)
-                inspector = inspect(engine)
-                metadata = MetaData()
-                metadata.reflect(bind=engine)
-                log.info('===== Database reflected ====')
-                return engine
-            else:
-                log.error("Cannot connect to DB using connection string provided")
+        if active_credentials:
+            credentials = access_credential_entity(active_credentials)
+
+            if credentials["conn_type"] not in ["csv", "api"]:
+                log.info('===== start creating an engine =====')
+                connection_string = credentials["conn_string"]
+                success, error_message = test_db(connection_string)
+                if success:
+                    engine = create_engine(connection_string)
+                    inspector = inspect(engine)
+                    metadata = MetaData()
+                    metadata.reflect(bind=engine)
+                    log.info('===== Database reflected ====')
+                    return engine
+                else:
+                    log.error("Cannot connect to DB using connection string provided")
 
     except SQLAlchemyError as e:
         # Log the error or handle it as needed

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
-
+import uuid
 from database.database import get_db
 from models.models import SiteConfig
 
@@ -47,6 +47,10 @@ class SaveSiteConfig(BaseModel):
     site_name: str = Field(..., description="")
     site_code: str = Field(..., description="")
     primary_system: str = Field(..., description="")
+    country: str = Field(..., description="")
+    region: str = Field(..., description="")
+    organization: str = Field(..., description="")
+
     is_active: bool = Field(..., description="")
 
 
@@ -65,6 +69,9 @@ def add_site_config(data: SaveSiteConfig, db: Session = Depends(get_db)):
             site_name=data.site_name,
             site_code=data.site_code,
             primary_system=data.primary_system,
+            country=data.country,
+            region=data.region,
+            organization=data.organization,
             is_active=data.is_active
         )
         db.add(site_config)
@@ -81,7 +88,7 @@ def edit_site_config(config_id: str, data: SaveSiteConfig, db: Session = Depends
     try:
         # deactivate other active site if updated site is set as default
         if data.is_active:
-            active_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
+            active_config = db.query(SiteConfig).filter(SiteConfig.is_active == True, SiteConfig.id != config_id).first()
 
             if active_config is not None:
                 active_config.is_active = False
@@ -92,6 +99,9 @@ def edit_site_config(config_id: str, data: SaveSiteConfig, db: Session = Depends
             "site_name": data.site_name,
             "site_code": data.site_code,
             "primary_system": data.primary_system,
+            "country": data.country,
+            "region": data.region,
+            "organization": data.organization,
             "is_active": data.is_active
         })
         db.commit()

@@ -28,11 +28,12 @@ def upload_data(data):
         for record in data.data:
             columns = ', '.join([sanitize_identifier(key) for key in record.keys()])
             placeholders = ', '.join(['%s'] * len(record))
+            values = (uuid.uuid4(), *(str(value) for value in record.values()))
+
             query = text(f"""
                 INSERT INTO {sanitize_identifier(data.name)}_{data.upload.upper()}_EXTRACT (generated_id_unique, {columns})
-                VALUES (%s, {placeholders})
+                VALUES {values}
             """)
-            values = (uuid.uuid4(), *[str(value) for value in record.values()])
-            execute_query(query, values)
+            execute_query(query)
     except Exception as e:
         logging.error("Error occurred in uploading data", exc_info=True)
