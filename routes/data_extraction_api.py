@@ -96,12 +96,13 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
 
                 for data in batch:
                     for key, value in data.items():
+
                         quoted_values = [ None if value is None
                             else None if value == ''
                             else int(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "INT")
                             else bool(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "BOOLEAN")
+                            else f"{convert_datetime_to_iso(value)}" if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "DATETIME2")
                             else f"{value}" if isinstance(value, str)
-                            else f"{value.strftime('%Y-%m-%d')}" if isinstance(value, datetime.date)and ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "DATETIME2")
                             else f"{value}" if ((db.query(DataDictionaryTerms).filter(
                                 DataDictionaryTerms.dictionary == baselookup,
                                 DataDictionaryTerms.term == key).first()).data_type == "NVARCHAR")
@@ -182,6 +183,14 @@ async def progress_websocket_endpoint(
     except Exception as e:
         log.error("Websocket error ==> %s", str(e))
         await websocket.close()
+
+
+def convert_datetime_to_iso(value):
+    if isinstance(value, datetime.date):
+        return value.strftime('%Y-%m-%d')
+    else:
+        return datetime.datetime.strptime(value, '%d/%m/%Y').date()
+
 
 
 
