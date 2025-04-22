@@ -129,7 +129,7 @@ def add_dict_terms(data, data_dictionary, db):
     for row in data.data:
         term = row['column']
         data_type = row['data_type']
-        is_required = bool(row['is_required'])
+        is_required = True if row['is_required'].lower() == 'yes' else False
         term_description = row['description'] or None
         expected_values = row['expected_values'] or None
 

@@ -102,7 +102,7 @@ async def test_mapped_variables(conn_type:str, baselookup: str, variables: List[
     try:
         extractQuery = generate_test_query(conn_type, variables, db)
 
-        baseRepoLoaded = execute_raw_data_query(extractQuery)
+        baseRepoLoaded = execute_raw_data_query(text(extractQuery))
 
         processed_results = [result for result in baseRepoLoaded]
 
@@ -111,7 +111,7 @@ async def test_mapped_variables(conn_type:str, baselookup: str, variables: List[
 
         return {"data": list_of_issues}
     except Exception as e:
-        # return {"status":500, "message":e
+        log.error("Error testing mappings. ERROR: ==> %s", str(e))
         raise HTTPException(status_code=500, detail="Error testing mappings on source system:" + str(e))
 
 
@@ -165,7 +165,7 @@ def generate_test_query(conn_type: str, variableSet: List[object], db):
 
         columns = ", ".join(mapped_columns)
 
-        query = f"SELECT {columns} from {tableName} "
+        query = f"SELECT {columns} from {tableName}"
         log.info("++++++++++ Successfully generated query +++++++++++")
         return query
     except Exception as e:
