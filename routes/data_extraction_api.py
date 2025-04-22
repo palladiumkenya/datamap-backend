@@ -13,7 +13,7 @@ from typing import List
 
 import logging
 
-from database.database import execute_data_query, get_db as get_main_db, execute_query, engine as postgres_engine
+from database.database import execute_data_query, get_db as get_main_db, execute_query,execute_query_return_dict, engine as postgres_engine
 from database.source_system_database import get_source_db, engine as source_db_engine
 
 from models.models import AccessCredentials, MappedVariables, DataDictionaryTerms, DataDictionaries, SiteConfig, \
@@ -76,9 +76,9 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                 processed_results=[result for result in baseRepoLoaded]
         else:
             # extract data from imported csv/api schema
-            baseRepoLoaded = execute_data_query(extract_source_data_query)
+            baseRepoLoaded = execute_query_return_dict(text(extract_source_data_query))
             processed_results = [result for result in baseRepoLoaded]
-
+            print(processed_results)
         # ------ --------------- -------
         # ------ started loading -------
 

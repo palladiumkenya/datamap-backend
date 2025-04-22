@@ -37,6 +37,10 @@ def execute_data_query(query):
         result = connection.execute(query)
         return result.fetchall()
 
+def execute_query_return_dict(query):
+    with engine.connect() as connection:
+        result = connection.execute(query)
+        return [dict(row) for row in result.mappings()]
 
 def execute_raw_data_query(query):
     with engine.connect() as connection:

@@ -15,8 +15,6 @@ def get_site_configs(db: Session = Depends(get_db)):
     try:
         configs = db.query(SiteConfig).all()
         return {"data": configs}
-    except SiteConfig.DoesNotExist:
-        raise HTTPException(status_code=404, detail="Config not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
