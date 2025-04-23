@@ -193,6 +193,7 @@ def convert_datetime_to_iso(value):
     for date_format in date_formats:
         try:
             date_object = datetime.datetime.strptime(value, date_format).date()
+            print("date_object -->",value, date_object)
             return date_object
         except ValueError:
             continue
