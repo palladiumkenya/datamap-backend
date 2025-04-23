@@ -186,16 +186,16 @@ async def progress_websocket_endpoint(
 
 
 def convert_datetime_to_iso(value):
-    if isinstance(value, datetime.date):
-        return value.strftime('%Y-%m-%d')
-    else:
-        date_formats = ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
-        for date_format in date_formats:
-            try:
-                date_object = datetime.datetime.strptime(value, date_format).date()
-                return date_object
-            except ValueError:
-                continue
+    # if isinstance(value, datetime.date):
+    #     return value.strftime('%Y-%m-%d')
+    # else:
+    date_formats = ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
+    for date_format in date_formats:
+        try:
+            date_object = datetime.datetime.strptime(value, date_format).date()
+            return date_object
+        except ValueError:
+            continue
 
 
 
