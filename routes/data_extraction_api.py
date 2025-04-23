@@ -189,7 +189,13 @@ def convert_datetime_to_iso(value):
     if isinstance(value, datetime.date):
         return value.strftime('%Y-%m-%d')
     else:
-        return datetime.datetime.strptime(value, '%d/%m/%Y').date()
+        date_formats = ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
+        for date_format in date_formats:
+            try:
+                date_object = datetime.strptime(value, date_format).date()
+                return date_object
+            except ValueError:
+                continue
 
 
 
