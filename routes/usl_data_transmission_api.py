@@ -141,11 +141,12 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
         # Define batch size (how many records per batch)
         batch_size = settings.BATCH_SIZE
         total_batches = total_records // batch_size + (1 if total_records % batch_size != 0 else 0)
-
+        if total_batches==0:
+            total_batches=1
         processed_batches = 0
 
         select_statement = text(f"""
-                                       SELECT * FROM {baselookup} WHERE data_required_check_fail = false
+                                       SELECT * FROM {baselookup} 
                                    """)
         allDataResults = execute_data_query(select_statement)
         allDataResults = [dict(row._mapping) for row in allDataResults]
