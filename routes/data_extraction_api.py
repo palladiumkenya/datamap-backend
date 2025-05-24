@@ -101,7 +101,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
                             else None if value == ''
                             else int(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "INT")
                             else bool(value) if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "BOOLEAN")
-                            else f"{convert_datetime_to_iso(value)}" if ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type == "DATETIME2")
+                            else f"{convert_datetime_to_iso(value)}" if "DATETIME" in ((db.query(DataDictionaryTerms).filter(DataDictionaryTerms.dictionary==baselookup, DataDictionaryTerms.term==key).first()).data_type)
                             else f"{value}" if isinstance(value, str)
                             else f"{value}" if ((db.query(DataDictionaryTerms).filter(
                                 DataDictionaryTerms.dictionary == baselookup,
@@ -189,14 +189,19 @@ def convert_datetime_to_iso(value):
     # if isinstance(value, datetime.date):
     #     return value.strftime('%Y-%m-%d')
     # else:
-    date_formats = ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
-    for date_format in date_formats:
-        try:
-            date_object = datetime.datetime.strptime(value, date_format).date()
-            print("date_object -->",value, date_object)
-            return date_object
-        except ValueError:
-            continue
+
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    elif isinstance(value, datetime.date):
+        return value
+    else:
+        date_formats = ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
+        for date_format in date_formats:
+            try:
+                date_object = datetime.datetime.strptime(value, date_format).date()
+                return date_object
+            except (ValueError, TypeError):
+                continue
 
 
 
