@@ -56,7 +56,7 @@ def createSourceDbEngine():
     except SQLAlchemyError as e:
         # Log the error or handle it as needed
         log.error('===== Database not reflected ==== ERROR:', str(e))
-        raise HTTPException(status_code=500, detail="Database connection error" + str(e)) from e
+        # raise HTTPException(status_code=500, detail="Database connection error" + str(e)) from e
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -6,7 +6,8 @@ from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data
 from models import models
 from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal
-from database.database import engine
+from database.database import engine, SQL_DATABASE_URL
+from routes.access_api import test_db
 
 from utils.user_utils import seed_default_user
 
@@ -14,9 +15,10 @@ from utils.user_utils import seed_default_user
 
 app = FastAPI()
 
-
-models.Base.metadata.create_all(engine)
-usl_models.Base.metadata.create_all(engine)
+success, error_message = test_db(SQL_DATABASE_URL)
+if success:
+    models.Base.metadata.create_all(engine)
+    usl_models.Base.metadata.create_all(engine)
 
 origins = [
     "*",
