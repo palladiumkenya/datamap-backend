@@ -87,7 +87,7 @@ async def load_data(baselookup: str, websocket: WebSocket, db):
             execute_query(text(f"TRUNCATE TABLE {baselookup}"))
 
             count_inserted = 0
-            batch_size = 100
+            batch_size = 300
             idColumn = baselookup.lower() + "_id"
 
             for i in range(0, len(processed_results), batch_size):
