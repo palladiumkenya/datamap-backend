@@ -167,4 +167,5 @@ cython_debug/
 .idea/
 user.db
 
-configs/schemas/*
+configs/data_dictionary/*
+pipelines/*
