@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import (access_api, dictionary_mapper_api, data_dictionary_api, data_dictionary_usl_api, configuration_api,
                     usl_data_transmission_api, site_configuration_api, user_management, transformations_api,
-                    flatfile_mapper_api, mappings_configs_api, data_extraction_api)
+                    flatfile_mapper_api, mappings_configs_api, data_extraction_api, appsettings_configuration_api)
 from models import models
 from models import usl_models
 from database.user_db import UserBase, user_engine, SessionLocal
@@ -53,6 +53,8 @@ app.include_router(configuration_api.router, tags=['App Configuration'], prefix=
 app.include_router(site_configuration_api.router, tags=['Site Configuration'], prefix='/api/site_config')
 app.include_router(transformations_api.router, tags=['DQA Configuration'], prefix='/api/dqa')
 app.include_router(data_dictionary_usl_api.router, tags=['USL Data Dictionary'], prefix='/api/usl/data_dictionary')
+app.include_router(appsettings_configuration_api.router, tags=['App Settings'], prefix='/api/appsettings')
+
 # TODO: MOVE READ TO ELSEWHERE
 # app.include_router(text2sql_api.router, tags=['Text2SQL'], prefix='/api/text2sql')
 
