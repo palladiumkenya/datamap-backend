@@ -74,7 +74,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
         # cass_session = database.cassandra_session_factory()
 
         count_query = text(f"""
-                           SELECT count(*) count FROM {baselookup} WHERE data_required_check_fail = false
+                           SELECT count(*) count FROM {baselookup}
                        """)
         count = execute_data_query(count_query)
         print(count[0].count)
@@ -108,7 +108,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
         }
 
         # cass_session.cluster.shutdown()
-        log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++")
+        log.info(f"+++++++++ NEW MANIFEST ID: {new_manifest} GENERATED +++++++++", manifest)
 
         trans_history = TransmissionHistory(usl_repository_name=baselookup, action="Sent",
                                             facility=f'{site_config.site_name}-{site_config.site_code}',
@@ -132,7 +132,7 @@ async def manifest(baselookup: str, db: Session = Depends(get_db)):
 async def send_progress(baselookup: str, manifest: object, websocket: WebSocket, db):
     try:
 
-        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} WHERE data_required_check_fail = false")
+        totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} ")
         totalRecordsresult = execute_data_query(totalRecordsquery)
 
         total_records = totalRecordsresult[0][0]
