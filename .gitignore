@@ -168,4 +168,7 @@ cython_debug/
 user.db
 
 configs/data_dictionary/*
-pipelines/*
+pipelines/task_output/*
+pipelines/send_task_output/*
+jobs.py
+.tmp_dagster_home_oazycgnd

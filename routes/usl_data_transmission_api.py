@@ -178,7 +178,7 @@ async def send_progress(baselookup: str, manifest: object, websocket: WebSocket,
             }
 
             log.info(f'===== STARTED SENDING DATA TO STAGING_API ===== Batch No. {batch}')
-            res = requests.post(settings.STAGING_API + baselookup,
+            res = requests.post(settings.STAGING_API+"usl/" + baselookup,
                                 json=data)
             log.info(f'===== SUCCESSFULLY SENT BATCH No. {batch} TO STAGING_API ===== Status Code :{res.status_code} ')
 
@@ -220,12 +220,82 @@ async def websocket_endpoint(baselookup: str, websocket: WebSocket, db: Session 
         log.error("Websocket error ==> %s", str(e))
         # await websocket.close()
 
-# @router.websocket("/ws/progress")
-# async def progress_updates(websocket: WebSocket):
-#    await websocket.accept()
-#    try:
-#        for i in range(101):  # Simulating progress (0-100%)
-#            await websocket.send_text(f"{i}")
-#            await asyncio.sleep(0.1)  # Simulate work delay
-#    except WebSocketDisconnect:
-#        print("Client disconnected")
+
+async def send_data_pipeline(baselookup):
+    try:
+        # baselookup = "lab"
+
+        # create manifest
+        response = requests.get(f"http://localhost:8000/api/usl_data/manifest/repository/{baselookup}")
+        manifest = response.json()
+        print(manifest)
+
+        # send manifest
+        sendmanifest = requests.post(f"{settings.STAGING_API}verify",json=manifest)
+        print(sendmanifest.text)
+        if sendmanifest.status_code == 200:
+            db_gen = get_db()
+            db = next(db_gen)
+
+            totalRecordsquery = text(f"SELECT COUNT(*) as count FROM {baselookup} ")
+            totalRecordsresult = execute_data_query(totalRecordsquery)
+
+            total_records = totalRecordsresult[0][0]
+
+            # Define batch size (how many records per batch)
+            batch_size = settings.BATCH_SIZE
+            total_batches = total_records // batch_size + (1 if total_records % batch_size != 0 else 0)
+            if total_batches==0:
+                total_batches=1
+            processed_batches = 0
+
+            select_statement = text(f"""
+                                           SELECT * FROM {baselookup} 
+                                       """)
+            allDataResults = execute_data_query(select_statement)
+            allDataResults = [dict(row._mapping) for row in allDataResults]
+
+            for batch in range(total_batches):
+                offset = batch * batch_size
+                limit = batch_size
+                result = allDataResults[offset:offset + limit]
+                log.info("++++++++ off set  +++++++"+ str(offset)+", Limit "+ str(limit))
+                baseRepoLoaded = [
+                    {key: (str(value) if isinstance(value, uuid.UUID)
+                           else value.strftime('%Y-%m-%d') if isinstance(value, datetime.date) else value)
+                     for key, value in
+                     row.items()} for row in result
+                ]
+
+                # print('staging to send ', settings.STAGING_API+baselookup)
+                log.info('===== USL REPORITORY DATA BATCH LOADED ====== ')
+
+                site_config = db.query(SiteConfig).filter(SiteConfig.is_active == True).first()
+
+                data = {
+                    "manifest_id": manifest["manifest_id"],
+                    "batch_no": batch,
+                    "total_batches": total_batches,
+                    "facility": site_config.site_name,
+                    "facility_id": site_config.site_code,
+                    "data": baseRepoLoaded
+                }
+
+                log.info(f'===== STARTED SENDING DATA TO STAGING_API ===== Batch No. {batch}')
+                res = requests.post(settings.STAGING_API+"usl/" + baselookup,
+                                    json=data)
+                log.info(f'===== SUCCESSFULLY SENT BATCH No. {batch} TO STAGING_API ===== Status Code :{res.status_code} ')
+
+                # Increment processed batches
+                processed_batches += 1
+                progress = int((processed_batches / total_batches) * 100)
+
+            log.info("++++++++++ All batches loaded and sent +++++++++++")
+            return {"status_code": 200, "message": "suuccessfully sent batches"}
+    except Exception as e:
+        log.error("Error sending data ==> %s", str(e))
+        raise Exception("Error sending data ==>" + str(e))
+    except BaseException as be:
+        log.error("BaseException: Error sending data ==> %s", str(be))
+        raise Exception("BaseException: Error sending data ==> " + str(be))
+
