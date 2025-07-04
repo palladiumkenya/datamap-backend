@@ -38,7 +38,7 @@ class SendEnrolments(luigi.Task):
 
     def run(self):
         # run send pipeline
-        asyncio.run(send_data_pipeline("enrolments"))
+        # asyncio.run(send_data_pipeline("enrolments"))
         with open(self.output().path, 'w', encoding='utf-8') as f:
             f.write(f"✅ SendEnrolments job completed at {datetime.now()}\n")
         print("✔️ SendEnrolments job complete")
@@ -62,7 +62,7 @@ class SendLabs(luigi.Task):
 
     def run(self):
         # run send pipeline
-        asyncio.run(send_data_pipeline("lab"))
+        # asyncio.run(send_data_pipeline("lab"))
         with open(self.output().path, 'w', encoding='utf-8') as f:
             f.write(f"✅ SendLabs completed at {datetime.now()}\n")
 

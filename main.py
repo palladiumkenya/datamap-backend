@@ -65,6 +65,11 @@ app.include_router(appsettings_configuration_api.router, tags=['App Settings'], 
 def root():
     return {"message": "Welcome to data map, we are up and running"}
 
+import subprocess
+@app.get("/run-pipeline")
+def run_pipeline():
+    subprocess.Popen(["python", "pipelines/load_pipeline_runner.py"])
+    return {"status": "pipeline triggered"}
 
 # Run the FastAPI application
 if __name__ == "__main__":

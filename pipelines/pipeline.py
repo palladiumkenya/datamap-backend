@@ -9,7 +9,7 @@ from routes.usl_data_transmission_api import send_data_pipeline
 
 
 
-OUTPUT_DIR = "./pipelines/task_output"
+OUTPUT_DIR = "./pipelines/load_task_output"
 
 
 def clear_folder(folder_path):
@@ -38,7 +38,7 @@ class LoadLabs(luigi.Task):
 
     def run(self):
         # run extraction pipeline
-        asyncio.run(extract_data_pipeline("lab"))
+        # asyncio.run(extract_data_pipeline("lab"))
         with open(self.output().path, 'w', encoding='utf-8') as f:
             f.write(f"✅ LoadLabs job completed at {datetime.now()}\n")
         print("✔️ LoadLabs job complete")
@@ -56,7 +56,7 @@ class LoadEnrolments(luigi.Task):
 
     def run(self):
         # run extraction pipeline
-        asyncio.run(extract_data_pipeline("enrolments"))
+        # asyncio.run(extract_data_pipeline("enrolments"))
         with open(self.output().path, 'w', encoding='utf-8') as f:
             f.write(f"✅ LoadEnrolments completed at {datetime.now()}\n")
 

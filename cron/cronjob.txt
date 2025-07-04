@@ -1,0 +1,5 @@
+* * * * * root /usr/local/bin/run_luigi.sh >> /luigi-logs/cron.log 2>&1
+* * * * * root /usr/local/bin/run_luigi_send.sh >> /luigi-logs/cron_luigi_send.log 2>&1
+
+
+
